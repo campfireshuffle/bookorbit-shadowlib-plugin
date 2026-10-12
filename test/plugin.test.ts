@@ -288,6 +288,10 @@ test("dedupe merges hashes and links, retaining formats and editions", () => {
   const result = mergeHits(hits, "ebook", "en", 20);
   assert.equal(result.length, 3);
   assert.equal(JSON.parse(result[0].guid).locations.length, 2);
+  assert.equal(result[0].title, `${q.title} · Anna’s Archive, LibGen`);
+  assert.equal(result[0].bookTitle, q.title);
+  assert.equal(result[1].title, `${q.title} · Anna’s Archive`);
+  assert.equal(result[1].format, "pdf");
   const linked = [
     {
       ...base,
@@ -317,7 +321,9 @@ test("dedupe merges hashes and links, retaining formats and editions", () => {
       location: { ...base.location, id: "other" },
     },
   ];
-  assert.equal(mergeHits(hashed, "ebook", null, 20).length, 1);
+  const sameLibrary = mergeHits(hashed, "ebook", null, 20);
+  assert.equal(sameLibrary.length, 1);
+  assert.equal(sameLibrary[0].title, `${q.title} · Anna’s Archive`);
   const bridge = [
     { ...base, md5: "d".repeat(32) },
     {
@@ -562,7 +568,10 @@ test("Z-Library credentials use the encrypted field and file resolution uses its
     h.value,
     AbortSignal.timeout(3000),
   );
+  assert.equal(releases[0].title, `${q.title} · Z-Library`);
+  assert.equal(releases[0].bookTitle, q.title);
   assert.equal(result.url, "https://files.example/pride.epub");
+  assert.equal(result.fileName, `${q.title}.epub`);
   assert.equal(
     h.calls.filter((c) => c.url.endsWith("/eapi/user/login")).length,
     1,
@@ -627,7 +636,7 @@ test("Liber3 discovers its gateway without running its script and decodes the pu
     h.value,
     AbortSignal.timeout(3000),
   );
-  assert.equal(releases[0].title, q.title);
+  assert.equal(releases[0].title, `${q.title} · Liber3`);
   const file = await plugin.resolveFile(
     releases[0],
     config,

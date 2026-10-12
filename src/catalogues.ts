@@ -260,6 +260,14 @@ export const LiberResponse = Schema.Struct({
   ),
 });
 
+const libraryNames = {
+  annas: "Anna’s Archive",
+  libgen: "LibGen",
+  zlibrary: "Z-Library",
+  memory: "Memory of the World",
+  liber3: "Liber3",
+} satisfies Record<typeof Family.Type, string>;
+
 export function mergeHits(
   hits: Hit[],
   media: string,
@@ -341,8 +349,13 @@ export function mergeHits(
             `${b.family}:${b.origin}:${b.id}`,
           ),
         );
+      const libraries = [
+        ...new Set(identifiers.map(({ family }) => libraryNames[family])),
+      ].join(", ");
       return {
         ...release,
+        title: `${release.title} · ${libraries}`,
+        bookTitle: release.bookTitle ?? release.title,
         sizeBytes: wholeBytes(release.sizeBytes),
         guid: JSON.stringify({
           locations: identifiers,
