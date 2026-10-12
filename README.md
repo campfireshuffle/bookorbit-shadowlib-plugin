@@ -1,6 +1,6 @@
 # BookOrbit ShadowLib plugin
 
-This BookOrbit plugin searches and dedupes results from the libraries listed on
+This BookOrbit plugin searches and dedupes results from the book and audiobook libraries listed on
 [Open Slum](https://open-slum.org/).
 
 ## Install
@@ -25,24 +25,26 @@ Enter JSON in the source's **API key** field. BookOrbit encrypts this field (you
 ```json
 {
   "annas": {
-    "origin": "https://YOUR-VERIFIED-ANNA-HOST",
     "key": "YOUR-ANNA-ACCOUNT-KEY"
   },
   "zlibrary": {
-    "origin": "https://YOUR-VERIFIED-ZLIB-HOST",
     "email": "YOUR-EMAIL",
     "password": "YOUR-PASSWORD"
   }
 }
 ```
 
+By default, accounts are shared with Open Slum mirrors for the same library,
+with separate sessions per host. Add `"trustedOrigins": ["https://YOUR-TRUSTED-HOST"]`
+to an account to restrict credential sharing; `[]` disables credential use.
+Existing `origin` configs stay pinned; remove `origin` to use discovered mirrors.
 
 ## Caveats
 
 - Browser checks can block access. The plugin detects
   blocks and tries some alternatives.
 - **Test connection** refreshes the mirror list and checks catalogue searches. If
-a search fails, BookOrbit's logs show which sources were unavailable.
+  a search fails, BookOrbit's logs show which sources were unavailable.
 
 ## Development
 
@@ -50,20 +52,19 @@ Requires Node.js and pnpm. The plugin uses TypeScript and Effect.
 
 ```sh
 pnpm install
-pnpm check
+pnpm build
 ```
 
-`pnpm check` runs formatting checks, type checking, tests, and the build. Upload the resulting
-`dist/index.mjs` to BookOrbit. The build checks BookOrbit's 512 KiB upload limit
-and verifies that the plugin can be loaded.
+Upload the resulting `dist/index.mjs` to BookOrbit. Run `pnpm check` before
+submitting a pull request.
 
 The vendored BookOrbit plugin API and its license are in `vendor/`.
 
 ## Releasing
 
 Bump the version in `package.json` and merge a pull request after checks pass.
-GitHub Actions builds and checks the plugin. Approve the `plugin-signing`
-deployment to sign and publish `index.mjs` and its update manifest.
+GitHub Actions automatically builds, signs, and publishes `index.mjs` and its
+update manifest after checks pass.
 The signing key is held in the main-only `plugin-signing` environment.
 
 MIT licensed; vendored files retain their upstream licenses.
