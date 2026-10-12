@@ -175,11 +175,11 @@ const MemoryBook = Schema.Struct({
   languages: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export const MemoryResponse = Schema.Struct({
-  _items: Schema.Array(MemoryBook),
+  _items: Schema.NullOr(Schema.Array(MemoryBook)),
 });
 export function parseMemory(body: unknown, mirror: Mirror): Hit[] {
   const result = Schema.decodeUnknownSync(MemoryResponse)(body);
-  return result._items.flatMap((book) =>
+  return (result._items ?? []).flatMap((book) =>
     book.formats.map((file) => {
       const base = new URL(book.library_url, mirror.origin);
       if (base.origin !== mirror.origin)

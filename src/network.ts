@@ -55,16 +55,75 @@ export const request = Effect.fnUntraced(function* (
   );
   if (cooldown) return yield* Effect.fail(cooldown.error);
   const attempt = Effect.gen(function* () {
-    let response = yield* Effect.tryPromise({
-      try: () =>
-        host.fetch(url, {
-          ...init,
-          redirect: "manual",
-          headers: { "User-Agent": "BookOrbit-ShadowLib/0.1", ...init.headers },
-        }),
-      catch: () =>
-        failure(`${origin}: network request failed.`, "unreachable", true),
-    });
+    let current = destination;
+    let headers: Record<string, string> = {
+      "User-Agent": "BookOrbit-ShadowLib/0.1",
+      ...init.headers,
+    };
+    let response: Response;
+    for (let hop = 0; ; hop++) {
+      response = yield* Effect.tryPromise({
+        try: () =>
+          host.fetch(current.href, { ...init, redirect: "manual", headers }),
+        catch: () =>
+          failure(
+            `${current.origin}: network request failed.`,
+            "unreachable",
+            true,
+          ),
+      });
+      // Follow ordinary public GET redirects. Account requests remain manual so
+      // an unexpected redirect cannot forward credentials to another origin.
+      const location = response.headers.get("location");
+      if (
+        authenticated ||
+        init.redirect === "manual" ||
+        (init.method && init.method !== "GET") ||
+        ![301, 302, 303, 307, 308].includes(response.status) ||
+        !location ||
+        challenged(response.headers)
+      )
+        break;
+      yield* Effect.tryPromise({
+        try: async () => {
+          await response.body?.cancel();
+        },
+        catch: () => failure("Could not release response."),
+      }).pipe(Effect.ignore);
+      if (hop === 3)
+        return yield* Effect.fail(
+          failure(
+            `${origin}: redirect limit reached; the site may require a browser.`,
+          ),
+        );
+      const next = yield* Effect.try({
+        try: () => new URL(location, current),
+        catch: () => failure(`${origin}: invalid redirect.`),
+      });
+      if (next.protocol !== "https:" || next.username || next.password)
+        return yield* Effect.fail(
+          failure(`${origin}: refused an unsafe redirect.`),
+        );
+      const cookies = new Map<string, string>();
+      if (next.origin === current.origin) {
+        for (const cookie of [
+          headers.Cookie ?? "",
+          ...response.headers
+            .getSetCookie()
+            .map((value) => value.split(";")[0]),
+        ]
+          .join("; ")
+          .split("; ")) {
+          const equals = cookie.indexOf("=");
+          if (equals > 0) cookies.set(cookie.slice(0, equals), cookie);
+        }
+      }
+      headers = {
+        "User-Agent": "BookOrbit-ShadowLib/0.1",
+        ...(cookies.size ? { Cookie: [...cookies.values()].join("; ") } : {}),
+      };
+      current = next;
+    }
     let challenge = challenged(response.headers);
     if (
       !challenge &&
