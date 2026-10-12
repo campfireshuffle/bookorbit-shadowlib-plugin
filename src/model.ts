@@ -17,7 +17,6 @@ export const families = [
 export const Family = Schema.Literals(families);
 export type Family = typeof Family.Type;
 const Account = Schema.Struct({
-  origin: Schema.optionalKey(Schema.String),
   trustedOrigins: Schema.optionalKey(Schema.Array(Schema.String)),
   key: Schema.optionalKey(Schema.NonEmptyString),
   email: Schema.optionalKey(Schema.NonEmptyString),
@@ -129,9 +128,6 @@ export function credentials(input: string | null): Credentials {
       if (account)
         normalized[family] = {
           ...account,
-          ...(account.origin !== undefined
-            ? { origin: httpsOrigin(account.origin) }
-            : {}),
           ...(account.trustedOrigins !== undefined
             ? {
                 trustedOrigins: [
@@ -144,7 +140,7 @@ export function credentials(input: string | null): Credentials {
     return normalized;
   } catch {
     throw failure(
-      "Invalid account JSON. Anna needs key; Z-Library needs email/password or userId/userKey. Library origin/trustedOrigins must be HTTPS origins; browserHelper needs an HTTP(S) origin and nonempty token.",
+      "Invalid account JSON. Anna needs key; Z-Library needs email/password or userId/userKey. Library trustedOrigins must be HTTPS origins; browserHelper needs an HTTP(S) origin and nonempty token.",
       "unauthorized",
     );
   }

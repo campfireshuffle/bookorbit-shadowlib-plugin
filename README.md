@@ -14,26 +14,42 @@ separate formats. Result titles show which libraries supplied each file.
 
 For future updates, use **Check for updates** or enable **Install signed updates automatically**.
 
+## Settings
+
+| Setting             | What to choose                                                           |
+| ------------------- | ------------------------------------------------------------------------ |
+| Base URL            | Keep `https://open-slum.org`.                                            |
+| Libraries to search | Select the libraries you have access to. Account requirements are below. |
+| Browser helper URL  | Optional. Leave blank unless searches need a browser helper.             |
+| IPFS gateway        | Keep the default, `https://dweb.link`.                                   |
+
 ## Accounts
 
-Paste this JSON into the source’s **API key** field. Include only accounts you use:
+Paste the example for your account into the source’s **API key** field.
+LibGen, Memory of the World, and Liber3 need no credentials; leave the field empty if you only use those.
+
+**Z-Library** requires a free account. Your daily download limit applies.
 
 ```json
 {
   "zlibrary": {
     "email": "YOUR-EMAIL",
     "password": "YOUR-PASSWORD"
-  },
+  }
+}
+```
+
+**Anna’s Archive** downloads require a paid membership key.
+
+```json
+{
   "annas": {
     "key": "YOUR-MEMBERSHIP-KEY"
   }
 }
 ```
 
-- **Z-Library:** requires a free account. Your daily download limit applies.
-- **Anna’s Archive:** downloads require a paid membership key.
-- **LibGen, Memory of the World, Liber3:** no credentials needed; leave **API key** empty if you use only these.
-
+If you use both accounts, include both entries in one JSON object.
 BookOrbit encrypts account details. Your server needs `BOOK_REQUEST_ENCRYPTION_KEY` configured.
 
 ## Browser checks
