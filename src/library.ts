@@ -375,7 +375,7 @@ export const resolveFile = Effect.fnUntraced(
         .toLowerCase()
         .replace(/[^a-z0-9]/g, "");
       const title =
-        release.title
+        (release.bookTitle ?? release.title)
           .replace(/[\x00-\x1f\x7f/\\:*?"<>|]/g, "_")
           .replace(/^\.+/, "_")
           .slice(0, 180) || "book";
