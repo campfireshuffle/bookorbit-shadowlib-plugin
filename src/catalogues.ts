@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 import {
   Family,
   failure,
+  httpsUrl,
   type Mirror,
   type PluginReleaseCandidate,
 } from "./model.js";
@@ -181,7 +182,7 @@ export function parseMemory(body: unknown, mirror: Mirror): Hit[] {
   const result = Schema.decodeUnknownSync(MemoryResponse)(body);
   return (result._items ?? []).flatMap((book) =>
     book.formats.map((file) => {
-      const base = new URL(book.library_url, mirror.origin);
+      const base = httpsUrl(book.library_url, mirror.origin);
       if (base.origin !== mirror.origin)
         throw failure("Memory library returned an unexpected file origin.");
       const path = [file.dir_path, file.file_name]
@@ -193,7 +194,7 @@ export function parseMemory(body: unknown, mirror: Mirror): Hit[] {
         location: {
           ...mirror,
           id: book._id + ":" + file.format,
-          url: new URL(path, base).href,
+          url: httpsUrl(path, base.href).href,
         },
         title: book.title,
         bookTitle: book.title,
@@ -236,6 +237,7 @@ export const ZSearch = Schema.Struct({
 });
 export const ZDownload = Schema.Struct({
   success: Schema.Number,
+  error: Schema.optionalKey(Schema.String),
   file: Schema.optionalKey(
     Schema.Struct({ downloadLink: Schema.optionalKey(Schema.String) }),
   ),
@@ -279,10 +281,12 @@ export function mergeHits(
     if (h.md5 && /^[a-f0-9]{32}$/i.test(h.md5))
       keys.unshift(`md5:${h.md5.toLowerCase()}`);
     if (h.location.url || h.location.page) {
-      const url = new URL(
-        h.location.url ?? h.location.page!,
-        h.location.origin,
-      );
+      let url: URL;
+      try {
+        url = httpsUrl(h.location.url ?? h.location.page!, h.location.origin);
+      } catch {
+        continue;
+      }
       url.hash = "";
       for (const key of [...url.searchParams.keys()])
         if (/^utm_|^(fbclid|gclid)$/i.test(key)) url.searchParams.delete(key);

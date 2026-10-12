@@ -11,27 +11,46 @@ export const families = [
   "annas",
   "libgen",
   "zlibrary",
-  "welib",
   "memory",
   "liber3",
-  "libstc",
 ] as const;
 export const Family = Schema.Literals(families);
 export type Family = typeof Family.Type;
 const Account = Schema.Struct({
   origin: Schema.optionalKey(Schema.String),
   trustedOrigins: Schema.optionalKey(Schema.Array(Schema.String)),
-  key: Schema.optionalKey(Schema.String),
-  email: Schema.optionalKey(Schema.String),
-  password: Schema.optionalKey(Schema.String),
-  userId: Schema.optionalKey(Schema.String),
-  userKey: Schema.optionalKey(Schema.String),
+  key: Schema.optionalKey(Schema.NonEmptyString),
+  email: Schema.optionalKey(Schema.NonEmptyString),
+  password: Schema.optionalKey(Schema.NonEmptyString),
+  userId: Schema.optionalKey(Schema.NonEmptyString),
+  userKey: Schema.optionalKey(Schema.NonEmptyString),
 });
 export const Credentials = Schema.Struct({
-  annas: Schema.optionalKey(Account),
-  zlibrary: Schema.optionalKey(Account),
+  annas: Schema.optionalKey(
+    Account.check(
+      Schema.makeFilter(
+        (account) =>
+          !!account.key &&
+          !account.email &&
+          !account.password &&
+          !account.userId &&
+          !account.userKey,
+      ),
+    ),
+  ),
+  zlibrary: Schema.optionalKey(
+    Account.check(
+      Schema.makeFilter(
+        (account) =>
+          !account.key &&
+          !!account.email === !!account.password &&
+          !!account.userId === !!account.userKey &&
+          (!!account.email || !!account.userId),
+      ),
+    ),
+  ),
   browserHelper: Schema.optionalKey(
-    Schema.Struct({ origin: Schema.String, token: Schema.String }),
+    Schema.Struct({ origin: Schema.String, token: Schema.NonEmptyString }),
   ),
 });
 export type Credentials = {
@@ -64,16 +83,19 @@ export const failure = (
   retryable = false,
   retryAfterMs = 0,
 ) => new SourceError({ message, kind, retryable, retryAfterMs });
+export function httpsUrl(input: string, base?: string): URL {
+  try {
+    const url = new URL(input, base);
+    if (url.protocol !== "https:" || url.username || url.password)
+      throw Error("Unsafe URL");
+    return url;
+  } catch {
+    throw failure("Use a valid HTTPS URL without user information.");
+  }
+}
 export function httpsOrigin(input: string): string {
-  const url = new URL(input);
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.pathname !== "/" ||
-    url.search ||
-    url.hash
-  )
+  const url = httpsUrl(input);
+  if (url.pathname !== "/" || url.search || url.hash)
     throw failure(
       "Use an HTTPS origin without a path, query, or user information.",
     );
@@ -122,7 +144,7 @@ export function credentials(input: string | null): Credentials {
     return normalized;
   } catch {
     throw failure(
-      "Invalid account JSON. Library origin/trustedOrigins must be HTTPS origins; browserHelper needs an HTTP(S) origin and token.",
+      "Invalid account JSON. Anna needs key; Z-Library needs email/password or userId/userKey. Library origin/trustedOrigins must be HTTPS origins; browserHelper needs an HTTP(S) origin and nonempty token.",
       "unauthorized",
     );
   }

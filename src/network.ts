@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Schedule from "effect/Schedule";
 import {
   failure,
+  httpsUrl,
   type PluginHost,
   type PluginRequestInit,
   SourceError,
@@ -38,8 +39,11 @@ export const request = Effect.fnUntraced(function* (
   url: string,
   init: PluginRequestInit = {},
 ) {
-  const { host, browser, browserTimeoutMs = 4500 } = yield* Network;
-  const destination = new URL(url);
+  const { host } = yield* Network;
+  const destination = yield* Effect.try({
+    try: () => httpsUrl(url),
+    catch: () => failure("Invalid request URL."),
+  });
   const origin = destination.origin;
   const authenticated =
     Object.entries(init.headers ?? {}).some(
@@ -52,29 +56,12 @@ export const request = Effect.fnUntraced(function* (
       destination.searchParams.has("key"));
   const blockedKey = `${origin}:${authenticated ? "authenticated" : "public"}`;
   const now = yield* Clock.currentTimeMillis;
+  for (const [key, entry] of cooldowns)
+    if (entry.until <= now) cooldowns.delete(key);
   const cooldown = [cooldowns.get(origin), cooldowns.get(blockedKey)].find(
     (entry) => entry && entry.until > now,
   );
-  const publicGet = !authenticated && (!init.method || init.method === "GET");
-  const cleared = Effect.fnUntraced(function* () {
-    if (!browser || !publicGet)
-      return yield* Effect.fail(failure("No browser helper configured."));
-    const response = yield* browser.fetchPage(url, browserTimeoutMs);
-    const body = yield* text(response);
-    if (challenged(response.headers, body))
-      return yield* Effect.fail(
-        failure(
-          "Browser helper returned another challenge. Run Test connection or complete the challenge in the helper.",
-        ),
-      );
-    host.logger.log(`${origin}: public page loaded through browser helper.`);
-    return new Response(body, { headers: { "Content-Type": "text/html" } });
-  });
-  if (cooldown) {
-    if (browser && publicGet && cooldown.error.kind !== "throttled")
-      return yield* cleared();
-    return yield* Effect.fail(cooldown.error);
-  }
+  if (cooldown) return yield* Effect.fail(cooldown.error);
   const attempt = Effect.gen(function* () {
     let current = destination;
     let headers: Record<string, string> = {
@@ -111,7 +98,6 @@ export const request = Effect.fnUntraced(function* (
         },
         catch: () => failure("Could not release response."),
       }).pipe(Effect.ignore);
-      if (hop === 3 && browser && publicGet) return yield* cleared();
       if (hop === 3)
         return yield* Effect.fail(
           failure(
@@ -174,7 +160,6 @@ export const request = Effect.fnUntraced(function* (
         },
         catch: () => failure("Could not release response."),
       }).pipe(Effect.ignore);
-      if (browser && publicGet) return yield* cleared();
       return yield* Effect.fail(error);
     }
     if (
@@ -216,6 +201,21 @@ export const request = Effect.fnUntraced(function* (
     return response;
   });
   return yield* attempt.pipe(Effect.retry(retrySchedule));
+});
+export const page = Effect.fnUntraced(function* (url: string) {
+  const { browser, browserTimeoutMs = 4500 } = yield* Network;
+  if (!browser) return yield* request(url);
+  const destination = yield* Effect.try({
+    try: () => httpsUrl(url),
+    catch: () => failure("Invalid public page URL."),
+  });
+  const now = yield* Clock.currentTimeMillis;
+  const cooldown = cooldowns.get(destination.origin);
+  if (cooldown && cooldown.until > now)
+    return yield* Effect.fail(cooldown.error);
+  const response = yield* browser.fetchPage(destination.href, browserTimeoutMs);
+  const body = yield* checkedText(response);
+  return new Response(body, { headers: { "Content-Type": "text/html" } });
 });
 export const text = Effect.fnUntraced(function* (response: Response) {
   return yield* Effect.tryPromise({

@@ -1,84 +1,99 @@
-# BookOrbit ShadowLib plugin
+# BookOrbit ShadowLib
 
-This BookOrbit plugin searches and dedupes results from the book and audiobook libraries listed on
-[Open Slum](https://open-slum.org/).
+Search books and audiobooks across Z-Library, Anna’s Archive, LibGen,
+Memory of the World, and Liber3. The plugin finds mirrors through
+[Open Slum](https://open-slum.org/) and merges duplicate files while keeping
+separate formats.
 
 ## Install
 
 1. Download `index.mjs` from the [latest release](https://github.com/sarimabbas/bookorbit-shadowlib-plugin/releases/latest).
-2. In BookOrbit, open **Settings → Server → Requests → Install a plugin** and
-   upload it.
-3. Add **BookOrbit ShadowLib** as a source. Keep the base URL as
-   `https://open-slum.org` and choose the libraries to search.
-4. Leave **API key** empty to use public access, then click **Test connection**.
+2. In BookOrbit, open **Settings → Server → Requests → Install a plugin** and upload it.
+3. Add **BookOrbit ShadowLib** as a source. Keep the base URL as `https://open-slum.org` and select your libraries.
+4. Add account details below if needed, save, and click **Test connection**.
 
-## Updates
+For future updates, use **Check for updates** or enable **Install signed updates automatically**.
 
-After installing this version, use **Check for updates** in BookOrbit. Enable
-**Install signed updates automatically** if you want updates applied for you.
+## Accounts
 
-## Browser checks
-
-If sites block searches, enter your existing **TRAWL** or **FlareSolverr** URL in
-**Browser helper URL** (a base URL or `/v1` works). For a LAN helper, enable
-**Allow private IP addresses**. Save, run **Test connection** to warm the browser,
-then search again. Leave the URL empty if you do not use a helper.
-
-The helper handles public pages and keeps separate sessions per host. Library
-passwords and keys are never sent to it. Some challenges still need manual help.
-
-## Optional accounts
-
-Enter JSON in the source's **API key** field. BookOrbit encrypts this field (you must have
-`BOOK_REQUEST_ENCRYPTION_KEY` configured). Include only the accounts you use:
+Paste this JSON into the source’s **API key** field. Include only accounts you use:
 
 ```json
 {
-  "annas": {
-    "key": "YOUR-ANNA-ACCOUNT-KEY"
-  },
   "zlibrary": {
     "email": "YOUR-EMAIL",
     "password": "YOUR-PASSWORD"
+  },
+  "annas": {
+    "key": "YOUR-MEMBERSHIP-KEY"
   }
 }
 ```
 
-By default, accounts are shared with Open Slum mirrors for the same library,
-with separate sessions per host. Add `"trustedOrigins": ["https://YOUR-TRUSTED-HOST"]`
-to an account to restrict credential sharing; `[]` disables credential use.
-Existing `origin` configs stay pinned; remove `origin` to use discovered mirrors.
+- **Z-Library:** requires a free account. Your daily download limit applies.
+- **Anna’s Archive:** downloads require a paid membership key. The plugin uses its fast-download API, never free/slow download pages.
+- **LibGen, Memory of the World, Liber3:** no credentials needed; leave **API key** empty if you use only these.
 
-If your helper requires a bearer token, add
-`"browserHelper": {"origin": "https://YOUR-HELPER", "token": "YOUR-TOKEN"}`
-to the same JSON. Its origin must match **Browser helper URL**.
+BookOrbit encrypts account details. Your server needs `BOOK_REQUEST_ENCRYPTION_KEY` configured.
 
-## Caveats
+## Browser checks
 
-- Public search does not guarantee anonymous downloads; some libraries require an account.
-- The browser helper loads catalogue pages. Protected file downloads may still need a browser-capable downloader.
-- **Test connection** refreshes the mirror list and checks catalogue searches. If
-  a search fails, BookOrbit's logs show which sources were unavailable.
+If website searches are blocked, enter your existing stock **TRAWL**, **Byparr**,
+or **FlareSolverr** URL in **Browser helper URL**. A base URL or `/v1` works.
+For a LAN helper, enable **Allow private IP addresses**. Save and run **Test connection**, then retry your search.
+
+When configured, the helper loads public website pages first; otherwise the plugin
+fetches them directly. Library credentials are never sent to it. API requests stay direct. Some browser checks may still fail.
+Test connection checks helper access and one readable catalogue. It does not verify every source or guarantee a download will work.
+
+<details>
+<summary>Advanced configuration</summary>
+
+Add `"trustedOrigins": ["https://YOUR-TRUSTED-HOST"]` inside an account to restrict
+where its credentials are used. Without this override, the plugin uses Open Slum
+mirrors for that library. `[]` disables credential use; an existing `origin` keeps
+an account pinned to that host. Sessions remain separate per host.
+
+Z-Library also accepts `"userId": "YOUR-ID"` and `"userKey": "YOUR-KEY"` instead
+of email/password.
+
+For a helper requiring a bearer token, include `browserHelper` alongside your
+accounts in the same JSON:
+
+```json
+{
+  "browserHelper": {
+    "origin": "https://YOUR-HELPER",
+    "token": "YOUR-TOKEN"
+  }
+}
+```
+
+Its origin must match **Browser helper URL**. Liber3’s **IPFS gateway** setting
+accepts an HTTPS origin and needs no API key.
+
+Anna’s Archive and LibGen still use HTML search. LibGen also uses website download
+links; Memory uses JSON catalogue file links and Liber3 uses IPFS links. API
+failures never switch Anna or Z-Library to anonymous downloads.
+
+Welib and LibSTC are no longer supported. Saved selections skip them; choose
+another library if they were your only selections. BookOrbit’s logs identify
+sources that could not complete a search.
+
+</details>
 
 ## Development
 
-Requires Node.js and pnpm. The plugin uses TypeScript and Effect.
+With Node.js and pnpm installed:
 
 ```sh
 pnpm install
+pnpm check
 pnpm build
 ```
 
-Upload the resulting `dist/index.mjs` to BookOrbit. Run `pnpm check` before
-submitting a pull request.
+The uploadable file is `dist/index.mjs`. To release, bump `package.json` and merge
+a passing PR; GitHub Actions builds, signs, and publishes the plugin and update
+manifest automatically.
 
-The vendored BookOrbit plugin API and its license are in `vendor/`.
-
-## Releasing
-
-Bump the version in `package.json` and merge a pull request after checks pass.
-GitHub Actions automatically builds, signs, and publishes `index.mjs` and its
-update manifest after checks pass.
-The signing key is held in the main-only `plugin-signing` environment.
-
-MIT licensed; vendored files retain their upstream licenses.
+MIT licensed. Vendored BookOrbit types retain their upstream license in `vendor/`.

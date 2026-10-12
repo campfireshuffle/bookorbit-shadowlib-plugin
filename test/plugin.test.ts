@@ -96,30 +96,24 @@ function host(
   return { value, calls, logs };
 }
 
-test("live Open Slum fixture discovers books, excluding Sci-Hub and the software archive", () => {
+test("live Open Slum fixture discovers API-capable libraries, excluding HTML-only sources", () => {
   const result = parseDirectory(
     readFileSync(new URL("fixtures/open-slum.html", import.meta.url), "utf8"),
   );
-  assert.equal(result.length, 20);
+  assert.equal(result.length, 18);
   assert(
     !result.some(
       (m) =>
         m.origin.includes("sci-hub") ||
         m.origin.includes("sci-net") ||
-        m.origin.includes("software."),
+        m.origin.includes("software.") ||
+        m.origin.includes("welib") ||
+        m.origin.includes("libstc"),
     ),
   );
   assert.deepEqual(
     new Set(result.map((m) => m.family)),
-    new Set([
-      "annas",
-      "libgen",
-      "zlibrary",
-      "welib",
-      "memory",
-      "liber3",
-      "libstc",
-    ]),
+    new Set(["annas", "libgen", "zlibrary", "memory", "liber3"]),
   );
 });
 test("credential JSON must bind secrets to an HTTPS origin and does not echo malformed secrets", () => {
@@ -355,7 +349,7 @@ test("audiobook requests retain audio and exclude ebook-only files", () => {
   assert.equal(result.length, 1);
   assert.equal(result[0].format, "m4b");
 });
-test("download falls back from failed Anna's to discovered LibGen; filename is sanitized", async () => {
+test("Anna API failure does not fall back to anonymous pages or LibGen", async () => {
   const key = "fake-download-key";
   const config = cfg(
     "annas,libgen",
@@ -395,14 +389,16 @@ test("download falls back from failed Anna's to discovered LibGen; filename is s
     null,
     20,
   )[0];
-  const file = await plugin.resolveFile(
-    release,
-    config,
-    h.value,
-    AbortSignal.timeout(5000),
+  await assert.rejects(
+    plugin.resolveFile(release, config, h.value, AbortSignal.timeout(5000)),
   );
-  assert(file.url.startsWith("https://libgen-download.example/get.php?"));
-  assert(!file.fileName.includes("/"));
+  assert(
+    h.calls.every(
+      ({ url }) =>
+        new URL(url).origin === config.baseUrl ||
+        new URL(url).pathname === "/dyn/api/fast_download.json",
+    ),
+  );
   assert(!h.logs.join("\n").includes(key));
 });
 test("tampered release identifiers cannot cause credential forwarding", async () => {
@@ -513,6 +509,10 @@ test("Z-Library credentials use the encrypted field and file resolution uses its
       },
     }),
   );
+  config.settings = {
+    ...config.settings,
+    browserHelperUrl: "https://api-must-stay-direct.example",
+  };
   const h = host((url, init) => {
     if (url.origin === config.baseUrl)
       return new Response(
@@ -539,7 +539,7 @@ test("Z-Library credentials use the encrypted field and file resolution uses its
             title: q.title,
             author: q.author,
             extension: "EPUB",
-            language: "english",
+            language: "English",
           },
         ],
       });
@@ -580,7 +580,8 @@ test("test connection refreshes discovery and refuses a reachable but unsearchab
   );
   const result = await plugin.test(config, h.value);
   assert.equal(result.success, false);
-  assert(h.logs.some((line) => line.includes("Domain check")));
+  assert("error" in result);
+  assert.match(result.error, /search layout not recognized/);
   const second = await plugin.test(config, h.value);
   assert.equal(second.success, false);
   assert.equal(
@@ -699,7 +700,7 @@ test("normal Cloudflare JavaScript detection is not mistaken for a blocking chal
   assert.equal(response.status, 200);
   assert((await response.text()).includes("A library"));
 });
-test("a blocked anonymous domain probe does not prevent a valid account from searching", async () => {
+test("connection test checks an authenticated catalogue without probing its homepage", async () => {
   const config = cfg(
     "annas",
     JSON.stringify({
@@ -726,7 +727,13 @@ test("a blocked anonymous domain probe does not prevent a valid account from sea
   });
   const result = await plugin.test(config, h.value);
   assert.equal(result.success, true);
-  assert(h.logs.some((line) => line.includes("protected")));
+  assert(
+    !h.calls.some(
+      (call) =>
+        new URL(call.url).origin === "https://member-only-fixture.example" &&
+        new URL(call.url).pathname === "/",
+    ),
+  );
 });
 
 test("Memory empty ISBN results are a completed search, not a source failure", async () => {
@@ -1063,16 +1070,16 @@ test("Anna's file fallback reuses the directory account key on the next mirror",
 });
 
 test("browser helper clears public challenges and reuses a host-scoped session", async () => {
-  const config = cfg("zlibrary");
+  const config = cfg("annas");
   config.settings = {
-    libraries: "zlibrary",
+    libraries: "annas",
     browserHelperUrl: "https://solver.example/",
   };
   const commands: Record<string, unknown>[] = [];
   const h = host((url, init) => {
     if (url.origin === config.baseUrl)
       return new Response(
-        directory({ zlibrary: ["https://zlib-browser.example"] }),
+        directory({ annas: ["https://zlib-browser.example"] }),
       );
     if (url.hostname === "solver.example") {
       assert.equal(url.pathname, "/v1");
@@ -1113,7 +1120,7 @@ test("browser helper clears public challenges and reuses a host-scoped session",
   assert.equal(gets[0].session, gets[1].session);
   assert.equal(gets[0].maxTimeout, 4500);
   assert.equal((await plugin.test(config, h.value)).success, true);
-  assert.equal(commands.at(-1)?.maxTimeout, 20000);
+  assert.equal(commands.at(-1)?.maxTimeout, 12000);
   const { browserHelper } = await import("../src/browser.js");
   const helper = await Effect.runPromise(browserHelper(config, h.value));
   await Effect.runPromise(
@@ -1327,5 +1334,656 @@ test("other libraries retain direct download routes and named book attachments",
       "https://files-fixture.example",
     ),
     "https://files-fixture.example/opaque",
+  );
+});
+
+test("old selections skip removed sources without contacting them", async () => {
+  const config = cfg("annas,welib,libstc");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          annas: ["https://migration-anna.example"],
+          other: ["https://welib.example", "https://libstc.example"],
+        }),
+      );
+    assert.equal(url.origin, "https://migration-anna.example");
+    return new Response(annaHtml());
+  });
+  assert.equal(
+    (await plugin.search(q, config, h.value, AbortSignal.timeout(3000))).length,
+    1,
+  );
+  config.settings = { libraries: "welib,libstc" };
+  await assert.rejects(
+    plugin.search(q, config, h.value, AbortSignal.timeout(3000)),
+    /Select at least one supported library/,
+  );
+});
+
+test("account-only download providers never request anonymous pages", async () => {
+  const { resolveLocation, searchMirror } = await import("../src/sources.js");
+  const config = cfg();
+  const h = host(() => {
+    throw Error("Unexpected network request");
+  });
+  for (const family of ["annas", "zlibrary"] as const) {
+    await assert.rejects(
+      Effect.runPromise(
+        resolveLocation(
+          {
+            family,
+            origin: "https://account-only.example",
+            id: "a".repeat(32),
+            page: "/book/123/abc",
+          },
+          config,
+          {},
+          "https://dweb.link",
+        ).pipe(Effect.provideService(Network, { host: h.value })),
+      ),
+      /requires/,
+    );
+  }
+  await assert.rejects(
+    Effect.runPromise(
+      searchMirror(
+        {
+          family: "zlibrary",
+          origin: "https://account-only.example",
+          status: "up",
+        },
+        q,
+        config,
+        {},
+      ).pipe(Effect.provideService(Network, { host: h.value })),
+    ),
+    /requires/,
+  );
+  assert.equal(h.calls.length, 0);
+});
+
+test("configuration errors keep safe actionable guidance with or without a helper", async () => {
+  const secret = "private-configuration-fixture";
+  for (const browserHelperUrl of ["", "https://helper-guidance.example"]) {
+    const config = cfg(
+      "annas",
+      JSON.stringify({
+        annas: { origin: "http://invalid.example", key: secret },
+      }),
+    );
+    config.settings = { ...config.settings, browserHelperUrl };
+    const h = host(() => {
+      throw Error("Configuration should fail before network access");
+    });
+    await assert.rejects(
+      plugin.search(q, config, h.value, new AbortController().signal),
+      (error: Error) => {
+        assert.match(
+          error.message,
+          /Library origin\/trustedOrigins must be HTTPS origins/,
+        );
+        assert(!error.message.includes(secret));
+        return true;
+      },
+    );
+    assert.equal(h.calls.length, 0);
+  }
+});
+
+test("incomplete or wrong-provider account JSON fails before network access", async () => {
+  const secret = "private-validation-fixture";
+  for (const account of [
+    { annas: {} },
+    { annas: { key: "" } },
+    { annas: { email: "fixture@example.com", password: secret } },
+    { zlibrary: { email: "fixture@example.com" } },
+    { zlibrary: { password: secret } },
+    { zlibrary: { userId: "42" } },
+    { zlibrary: { userKey: secret } },
+    { zlibrary: { key: secret } },
+    { browserHelper: { origin: "https://helper.example", token: "" } },
+  ]) {
+    const h = host(() => {
+      throw Error("Unexpected network call");
+    });
+    await assert.rejects(
+      plugin.search(
+        q,
+        cfg("annas", JSON.stringify(account)),
+        h.value,
+        new AbortController().signal,
+      ),
+      (error: Error) => {
+        assert.match(
+          error.message,
+          /Anna needs key; Z-Library needs email\/password or userId\/userKey/,
+        );
+        assert(!error.message.includes(secret));
+        return true;
+      },
+    );
+    assert.equal(h.calls.length, 0);
+  }
+});
+
+test("invalid library settings fail before discovery", async () => {
+  for (const settings of [
+    { libraries: "typo" },
+    { libraries: "welib,libstc" },
+    { libraries: "memory", ipfsOrigin: "http://invalid.example" },
+  ]) {
+    const config = cfg();
+    config.settings = settings;
+    const h = host(() => {
+      throw Error("Unexpected discovery request");
+    });
+    await assert.rejects(
+      plugin.search(q, config, h.value, new AbortController().signal),
+    );
+    assert.equal(h.calls.length, 0);
+  }
+});
+
+test("invalid API download URLs remain typed failures and allow another mirror", async () => {
+  for (const badUrl of [
+    "not a URL",
+    "http://insecure.example/file",
+    "https://user:private-url-fixture@files.example/file",
+  ]) {
+    const config = cfg(
+      "annas",
+      JSON.stringify({ annas: { key: "synthetic-key" } }),
+    );
+    const first = "https://invalid-api-url.example";
+    const second = "https://valid-api-url.example";
+    const h = host((url) =>
+      url.origin === config.baseUrl
+        ? new Response(directory({ annas: [first, second] }))
+        : Response.json({
+            download_url:
+              url.origin === first ? badUrl : "https://files.example/book.epub",
+          }),
+    );
+    const release = mergeHits(
+      [
+        {
+          title: q.title,
+          format: "epub",
+          sizeBytes: null,
+          seeders: null,
+          leechers: null,
+          location: { family: "annas", origin: first, id: "a".repeat(32) },
+        },
+      ],
+      "ebook",
+      null,
+      1,
+    )[0];
+    const file = await plugin.resolveFile(
+      release,
+      config,
+      h.value,
+      new AbortController().signal,
+    );
+    assert.equal(file.url, "https://files.example/book.epub");
+    assert(h.calls.some(({ url }) => new URL(url).origin === second));
+    assert(!h.logs.join(" ").includes("private-url-fixture"));
+  }
+});
+
+test("account rejection keeps its failure kind through search aggregation", async () => {
+  const config = cfg("zlibrary");
+  const h = host((url) => {
+    assert.equal(url.origin, config.baseUrl);
+    return new Response(
+      directory({ zlibrary: ["https://missing-account.example"] }),
+    );
+  });
+  await assert.rejects(
+    plugin.search(q, config, h.value, new AbortController().signal),
+    (error: Error & { kind?: string }) => {
+      assert.equal(error.kind, "unauthorized");
+      assert.match(error.message, /requires account credentials/);
+      return true;
+    },
+  );
+  assert.equal(h.calls.length, 1);
+});
+
+test("stalled catalogue mirrors yield to healthy alternatives within the search budget", async () => {
+  const config = cfg("libgen");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          libgen: [
+            "https://stalled-search.example",
+            "https://working-search.example",
+          ],
+        }),
+      );
+    if (url.hostname === "stalled-search.example")
+      return new Promise<Response>(() => {});
+    return new Response(libgenHtml());
+  });
+  const results = await plugin.search(
+    q,
+    config,
+    h.value,
+    AbortSignal.timeout(4500),
+  );
+  assert.equal(results.length, 1);
+  assert(
+    h.calls.some(
+      ({ url }) => new URL(url).hostname === "working-search.example",
+    ),
+  );
+});
+
+test("stalled directory refresh uses a recent cache before caller cancellation", async () => {
+  const { discover } = await import("../src/discovery.js");
+  const config = cfg("libgen");
+  let stall = false;
+  const h = host(() =>
+    stall
+      ? new Promise<Response>(() => {})
+      : new Response(directory({ libgen: ["https://cached-library.example"] })),
+  );
+  const lookup = (refresh: boolean) =>
+    Effect.runPromise(
+      discover(config.baseUrl, refresh).pipe(
+        Effect.provideService(Network, { host: h.value }),
+      ),
+      { signal: AbortSignal.timeout(4500) },
+    );
+  const initial = await lookup(false);
+  stall = true;
+  assert.deepEqual(await lookup(true), initial);
+  assert(
+    h.logs.some((message) => message.includes("last successful directory")),
+  );
+});
+
+test("retry schedules stop after two retries even without caller cancellation", async () => {
+  const h = host(
+    () =>
+      new Response("Unavailable", {
+        status: 503,
+        headers: { "Retry-After": "0" },
+      }),
+  );
+  await assert.rejects(
+    Effect.runPromise(
+      request("https://attempt-cap.example/search").pipe(
+        Effect.provideService(Network, { host: h.value }),
+      ),
+      { signal: AbortSignal.timeout(2500) },
+    ),
+    /HTTP 503/,
+  );
+  assert.equal(h.calls.length, 3);
+});
+
+test("cancelled helper requests discard sessions without waiting for stuck cleanup", async () => {
+  const { browserHelper } = await import("../src/browser.js");
+  const config = cfg();
+  config.settings = { browserHelperUrl: "https://cancel-helper.example" };
+  const controller = new AbortController();
+  let stall = true;
+  const commands: Record<string, unknown>[] = [];
+  const h = host((_, init) => {
+    const command = JSON.parse(init!.body!);
+    commands.push(command);
+    if (command.cmd === "sessions.destroy")
+      return new Promise<Response>(() => {});
+    if (command.cmd === "request.get") {
+      if (stall) {
+        setTimeout(() => controller.abort(), 5);
+        return new Promise<Response>(() => {});
+      }
+      return Response.json({
+        status: "ok",
+        solution: { status: 200, url: command.url, response: annaHtml() },
+      });
+    }
+    return Response.json({ status: "ok", session: command.session });
+  });
+  const helper = (await Effect.runPromise(browserHelper(config, h.value)))!;
+  const started = performance.now();
+  await assert.rejects(
+    Effect.runPromise(
+      helper.fetchPage("https://cancel-page.example/search", 4500),
+      { signal: controller.signal },
+    ),
+  );
+  assert(performance.now() - started < 1500);
+  stall = false;
+  await Effect.runPromise(
+    helper.fetchPage("https://cancel-page.example/search", 4500),
+    { signal: AbortSignal.timeout(2000) },
+  );
+  const creates = commands.filter(
+    (command) => command.cmd === "sessions.create",
+  );
+  assert.equal(creates.length, 2);
+  assert.notEqual(creates[0].session, creates[1].session);
+  assert(commands.some((command) => command.cmd === "sessions.destroy"));
+});
+
+test("concurrent helper callers serialize and share a single host session", async () => {
+  const { browserHelper } = await import("../src/browser.js");
+  const config = cfg();
+  config.settings = { browserHelperUrl: "https://parallel-helper.example" };
+  let active = 0;
+  let maximum = 0;
+  let creates = 0;
+  const h = host(async (_, init) => {
+    const command = JSON.parse(init!.body!);
+    if (command.cmd === "sessions.create") creates++;
+    if (command.cmd === "request.get") {
+      maximum = Math.max(maximum, ++active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active--;
+      return Response.json({
+        status: "ok",
+        solution: { status: 200, url: command.url, response: annaHtml() },
+      });
+    }
+    return Response.json({ status: "ok", session: command.session });
+  });
+  const first = (await Effect.runPromise(browserHelper(config, h.value)))!;
+  const second = (await Effect.runPromise(browserHelper(config, h.value)))!;
+  await Promise.all(
+    [first, second].map((helper) =>
+      Effect.runPromise(
+        helper.fetchPage("https://shared-page.example/search", 4500),
+      ),
+    ),
+  );
+  assert.equal(maximum, 1);
+  assert.equal(creates, 1);
+});
+
+test("authentication caches evict old sessions and recover without retaining unlimited accounts", async () => {
+  const configs = Array.from({ length: 66 }, () =>
+    cfg(
+      "zlibrary",
+      JSON.stringify({
+        zlibrary: {
+          email: "fixture@example.com",
+          password: "synthetic-password",
+        },
+      }),
+    ),
+  );
+  const logins = new Map<string, number>();
+  const h = host((url) => {
+    if (url.hostname.startsWith("directory-"))
+      return new Response(
+        directory({ zlibrary: ["https://bounded-auth.example"] }),
+      );
+    if (url.pathname === "/eapi/user/login") {
+      logins.set("count", (logins.get("count") ?? 0) + 1);
+      return Response.json({
+        success: 1,
+        user: { id: 42, remix_userkey: "synthetic-session-key" },
+      });
+    }
+    return Response.json({ success: 1, books: [] });
+  });
+  for (const config of configs)
+    await plugin.search(q, config, h.value, new AbortController().signal);
+  const before = logins.get("count")!;
+  await plugin.search(q, configs[0], h.value, new AbortController().signal);
+  assert.equal(logins.get("count"), before + 1);
+});
+
+test("paid Anna searches use the configured helper first while downloads use the API directly", async () => {
+  const key = "synthetic-paid-key";
+  const config = cfg("annas", JSON.stringify({ annas: { key } }));
+  config.settings = {
+    ...config.settings,
+    browserHelperUrl: "https://first-helper.example",
+  };
+  const h = host((url, init) => {
+    if (url.origin === config.baseUrl)
+      return new Response(directory({ annas: ["https://paid-first.example"] }));
+    if (url.hostname === "first-helper.example") {
+      assert(!JSON.stringify(init).includes(key));
+      const command = JSON.parse(init!.body!);
+      return Response.json({
+        status: "ok",
+        session: command.session,
+        ...(command.cmd === "request.get"
+          ? {
+              solution: { status: 200, url: command.url, response: annaHtml() },
+            }
+          : {}),
+      });
+    }
+    assert.equal(url.pathname, "/dyn/api/fast_download.json");
+    assert.equal(url.searchParams.get("key"), key);
+    return Response.json({ download_url: "https://files.example/paid.epub" });
+  });
+  const [release] = await plugin.search(
+    q,
+    config,
+    h.value,
+    new AbortController().signal,
+  );
+  assert(
+    !h.calls.some(({ url }) => new URL(url).hostname === "paid-first.example"),
+  );
+  const file = await plugin.resolveFile(
+    release,
+    config,
+    h.value,
+    new AbortController().signal,
+  );
+  assert.equal(file.url, "https://files.example/paid.epub");
+});
+
+test("malformed catalogue links and Liber3 entrypoints do not discard a healthy library", async () => {
+  const config = cfg("annas,libgen,liber3");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          annas: ["https://bad-catalogue.example"],
+          libgen: ["https://healthy-catalogue.example"],
+          other: ["https://liber3-bad.example"],
+        }),
+      );
+    if (url.hostname === "liber3-bad.example")
+      return new Response('<script type="module" src="https://["></script>');
+    if (url.hostname === "bad-catalogue.example")
+      return new Response(annaHtml().replace("/md5/", "https://[/md5/"));
+    return new Response(libgenHtml());
+  });
+  const results = await plugin.search(
+    q,
+    config,
+    h.value,
+    new AbortController().signal,
+  );
+  assert.equal(results.length, 1);
+  assert.equal(JSON.parse(results[0].guid).locations[0].family, "libgen");
+});
+
+test("malformed Memory file locations fail locally and allow a verified alternative", async () => {
+  const config = cfg("memory");
+  const h = host(
+    () =>
+      new Response(
+        directory({ other: ["https://library.memoryoftheworld.example"] }),
+      ),
+  );
+  const [release] = mergeHits(
+    parseMemory(memoryBody(), {
+      family: "memory",
+      origin: "https://library.memoryoftheworld.example",
+      status: "up",
+    }),
+    "ebook",
+    "en",
+    1,
+  );
+  const guid = JSON.parse(release.guid);
+  guid.locations.unshift({
+    ...guid.locations[0],
+    id: "malformed",
+    url: "https://[",
+  });
+  release.guid = JSON.stringify(guid);
+  assert.match(
+    (
+      await plugin.resolveFile(
+        release,
+        config,
+        h.value,
+        new AbortController().signal,
+      )
+    ).url,
+    /\/files\//,
+  );
+  assert.equal(h.calls.length, 1);
+});
+
+test("API quota exhaustion does not retry other mirrors of the same library", async () => {
+  for (const family of ["annas", "zlibrary"] as const) {
+    const config = cfg(
+      family,
+      JSON.stringify(
+        family === "annas"
+          ? { annas: { key: "synthetic-quota-key" } }
+          : { zlibrary: { userId: "42", userKey: "synthetic-session-key" } },
+      ),
+    );
+    const first = `https://${family}-quota.example`;
+    const second = `https://${family}-other.example`;
+    const h = host((url) =>
+      url.origin === config.baseUrl
+        ? new Response(directory({ [family]: [first, second] }))
+        : Response.json({ success: 0, error: "quota_exceeded" }),
+    );
+    const [release] = mergeHits(
+      [
+        {
+          title: q.title,
+          format: "epub",
+          sizeBytes: null,
+          seeders: null,
+          leechers: null,
+          location: {
+            family,
+            origin: first,
+            id: family === "annas" ? "a".repeat(32) : "42",
+            page: "/book/42/abc",
+          },
+        },
+      ],
+      "ebook",
+      "en",
+      1,
+    );
+    await assert.rejects(
+      plugin.resolveFile(
+        release,
+        config,
+        h.value,
+        new AbortController().signal,
+      ),
+      (error: Error & { kind?: string }) => {
+        assert.equal(error.kind, "throttled");
+        assert.match(error.message, /quota is exhausted/);
+        return true;
+      },
+    );
+    assert(!h.calls.some(({ url }) => new URL(url).origin === second));
+  }
+});
+
+test("a valid empty catalogue answer survives the remaining mirror budget", async () => {
+  const config = cfg("libgen");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          libgen: [
+            "https://empty-answer.example",
+            "https://empty-followup-1.example",
+            "https://empty-followup-2.example",
+            "https://empty-followup-3.example",
+          ],
+        }),
+      );
+    if (url.hostname === "empty-answer.example")
+      return new Response("No results");
+    return new Promise<Response>(() => {});
+  });
+  const releases = await plugin.search(
+    q,
+    config,
+    h.value,
+    AbortSignal.timeout(10000),
+  );
+  assert.deepEqual(releases, []);
+  assert(
+    h.calls.some(
+      ({ url }) => new URL(url).hostname === "empty-followup-3.example",
+    ),
+  );
+});
+
+test("connection proof returns a readable catalogue without waiting for stalled sources or homepage probes", async () => {
+  const config = cfg("libgen,memory");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          libgen: Array.from(
+            { length: 12 },
+            (_, i) => `https://stalled-library-${i}.example`,
+          ),
+          other: ["https://library.memoryoftheworld.example"],
+        }),
+      );
+    assert.notEqual(url.pathname, "/");
+    if (url.hostname === "library.memoryoftheworld.example")
+      return Response.json(memoryBody());
+    return new Promise<Response>(() => {});
+  });
+  const result = await Promise.race([
+    plugin.test(config, h.value),
+    new Promise<never>((_, reject) => {
+      setTimeout(
+        () => reject(new Error("Connection proof waited for a stalled source")),
+        1000,
+      ).unref();
+    }),
+  ]);
+  assert.equal(result.success, true);
+  assert.match(result.indexerName ?? "", /readable catalogue/);
+});
+
+test("connection test bounds a browser helper that never responds", async () => {
+  const config = cfg("memory");
+  config.settings!.browserHelperUrl = "http://unresponsive-helper.example:8191";
+  const h = host((url) =>
+    url.origin === config.baseUrl
+      ? new Response(
+          directory({ other: ["https://library.memoryoftheworld.example"] }),
+        )
+      : new Promise<Response>(() => {}),
+  );
+  const result = await plugin.test(config, h.value);
+  assert.equal(result.success, false);
+  assert("error" in result);
+  assert.match(result.error, /Browser helper did not respond/);
+  assert(
+    !h.calls.some(
+      ({ url }) => new URL(url).hostname === "library.memoryoftheworld.example",
+    ),
   );
 });
