@@ -19,7 +19,9 @@ Anna's-only source to avoid duplicate searches and additional sign-ins.
 For authenticated sources, put the following JSON in the source's **API key**
 field. This is BookOrbit's encrypted credential field, not a plugin setting.
 `BOOK_REQUEST_ENCRYPTION_KEY` must be configured on the server. Remove any account
-you do not use; the field can be left empty for public sources.
+you do not use; the field can be left empty for public sources. No account is
+required to enable the plugin. Account-only features, including Anna's member
+fast-download API, remain subject to the source's own access requirements.
 
 ```json
 {
@@ -66,6 +68,14 @@ This plugin does not monitor bestseller lists.
 - Cache authenticated sessions for 15 minutes. An Effect semaphore prevents
   simultaneous calls from signing in repeatedly. Refresh once on HTTP 401 or a
   redirect to login. Credential changes invalidate cached sessions.
+- Detect Cloudflare's `cf-mitigated: challenge` header and recognizable blocking
+  pages, including challenges returned with HTTP 200 or 503. Skip challenge
+  retries, pause that origin for five minutes, and search other mirrors/libraries.
+  Plain HTTP 403 responses receive the same cooldown. Ordinary Cloudflare
+  JavaScript-detection scripts are not treated as blocking pages.
+  Anonymous and authenticated access have separate challenge cooldowns, so a
+  blocked public-page probe does not prevent a valid member account from working.
+  HTTP 429 cooldowns apply to the whole origin regardless of credentials.
 - Interleave library results before limiting, so a larger catalogue cannot drown
   out a smaller one. Deduplicate published full-file MD5/SHA-256, exact normalized
   URLs, and stable provider IDs. Preserve formats and editions; titles alone are
@@ -81,6 +91,12 @@ policy, response-size limits, and deadlines. The plugin does not execute remote
 JavaScript, run browser challenge solvers, spawn processes, or read local files.
 It has no background timers, telemetry, or automatic update channel. Rebuild and
 upload manually to update this private plugin.
+
+A residential IP does not guarantee challenge-free access: these checks can
+require browser JavaScript, cookies, and client signals. The plugin handles
+blocked sources by reporting and falling back; it does not solve interactive
+challenges. See [Cloudflare's browser requirements](https://developers.cloudflare.com/cloudflare-challenges/reference/supported-browsers/)
+and [challenge-response detection](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/detect-response/).
 
 ## Sources and verification
 

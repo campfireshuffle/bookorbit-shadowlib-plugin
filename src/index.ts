@@ -82,7 +82,7 @@ export const health = Effect.fnUntraced(function*(mirrors: Mirror[]) {
     return { ...mirror, status };
   }).pipe(
     Effect.timeoutOrElse({ duration: "3 seconds", orElse: () => Effect.fail(failure("Probe timed out.", "timeout")) }),
-    Effect.catch(() => Effect.succeed({ ...mirror, status: "unreachable" })),
+    Effect.catch((error) => Effect.succeed({ ...mirror, status: /browser challenge|access denied/.test(error.message) ? "protected" : error.kind === "throttled" ? "throttled" : "unreachable" })),
     Effect.tap((result) => Effect.sync(() => host.logger.log(`Domain check ${result.family}: ${result.origin} — ${result.status}.`))),
   ), { concurrency: 4 });
 });
@@ -95,7 +95,7 @@ const prepare = Effect.fnUntraced(function*(cfg: PluginIndexerConfig, refresh = 
 
 export default {
   apiVersion: 1,
-  version: "0.1.0",
+  version: "0.1.1",
   type: "bookorbit-shadowlib-plugin",
   label: "BookOrbit ShadowLib",
   requiresCredential: false,

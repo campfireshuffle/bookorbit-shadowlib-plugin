@@ -211,3 +211,40 @@ test("Liber3 discovers its gateway without running its script and decodes the pu
   const file = await plugin.resolveFile(releases[0], config, h.value, AbortSignal.timeout(3000));
   assert.equal(file.url, `https://dweb.link/ipfs/${cid}`);
 });
+
+test("browser challenges at 200 or 503 fall back once and cool down without requiring credentials", async () => {
+  for (const status of [200, 503]) {
+    const config = cfg("annas,libgen");
+    const blocked = `https://challenge-${status}.example`;
+    const h = host((url) => {
+      if (url.origin === config.baseUrl) return new Response(directory({ annas: [blocked], libgen: [`https://challenge-fallback-${status}.example`] }));
+      if (url.origin === blocked) return new Response('<title>Just a moment...</title><form id="challenge-form"></form>', { status, headers: { "Content-Type": "text/html", ...(status === 503 ? { "cf-mitigated": "challenge" } : {}) } });
+      return new Response(libgenHtml());
+    });
+    const first = await plugin.search(q, config, h.value, AbortSignal.timeout(3000));
+    const second = await plugin.search(q, config, h.value, AbortSignal.timeout(3000));
+    assert.equal(first.length, 1); assert.equal(second.length, 1);
+    assert.equal(h.calls.filter((c) => new URL(c.url).origin === blocked).length, 1);
+    assert(!h.calls.some((c) => new URL(c.url).pathname === "/account/"));
+    assert(h.logs.some((line) => line.includes("browser challenge")));
+  }
+});
+test("normal Cloudflare JavaScript detection is not mistaken for a blocking challenge", async () => {
+  const h = host(() => new Response('<title>A library</title><script src="/cdn-cgi/challenge-platform/scripts/jsd/api.js"></script>', { headers: { "Content-Type": "text/html" } }));
+  const response = await Effect.runPromise(request("https://ordinary-cloudflare.example").pipe(Effect.provideService(Network, { host: h.value })));
+  assert.equal(response.status, 200);
+  assert((await response.text()).includes("A library"));
+});
+test("a blocked anonymous domain probe does not prevent a valid account from searching", async () => {
+  const config = cfg("annas", JSON.stringify({ annas: { origin: "https://member-only-fixture.example", key: "member-fixture-key" } }));
+  const h = host((url, init) => {
+    if (url.origin === config.baseUrl) return new Response(directory({ annas: ["https://member-only-fixture.example"] }));
+    if (url.pathname === "/") return new Response('<title>DDoS-Guard</title>', { status: 403 });
+    if (url.pathname === "/account/") return new Response("", { status: 302, headers: { "Set-Cookie": "aa_session=member; Secure" } });
+    assert.equal(init?.headers?.Cookie, "aa_session=member");
+    return new Response(annaHtml());
+  });
+  const result = await plugin.test(config, h.value);
+  assert.equal(result.success, true);
+  assert(h.logs.some((line) => line.includes("protected")));
+});
