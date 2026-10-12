@@ -15,3 +15,13 @@ guide doesn't cover, search through the source code in `node_modules/effect/src`
 - Default account trust to Open Slum mirrors in the same library family. Honor trustedOrigins overrides (including an empty list) and legacy origin pins. Never share session cookies between hosts or follow authenticated redirects.
 - Do not bypass browser challenges. Surface them and fall back to another source.
 - Run `pnpm check` before delivering `dist/index.mjs`. Tests use synthetic credentials and fixture responses.
+
+# Module design and checks
+
+- `index.ts` adapts BookOrbit to the three Effect operations in `library.ts`.
+- `library.ts` owns discovery, account trust, search scheduling and file fallback. Keep these details out of callers.
+- `sources.ts` owns provider protocols and host-scoped sessions; `network.ts` owns HTTP redirects, retries and cooldowns.
+- Prefer private helpers and small interfaces. Reuse `Effect.result` for recoverable outcomes; validate configuration through typed errors.
+- `pnpm lint` runs Knip for unused files, exports and dependencies. Vendored upstream types stay unchanged.
+- `pnpm build` produces the standalone `dist/index.mjs`. `pnpm check` also verifies formatting, Knip, types, tests and BookOrbit upload compatibility.
+- To release, bump `package.json`, merge a passing PR, then approve the `plugin-signing` deployment. Actions signs and publishes the bundle and update manifest.

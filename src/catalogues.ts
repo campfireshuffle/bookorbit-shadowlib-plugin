@@ -7,7 +7,7 @@ import {
   type PluginReleaseCandidate,
 } from "./model.js";
 
-export const LocationSchema = Schema.Struct({
+const LocationSchema = Schema.Struct({
   family: Family,
   origin: Schema.String,
   id: Schema.String,
@@ -24,18 +24,11 @@ export const GuidSchema = Schema.Struct({
   locations: Schema.Array(LocationSchema),
   md5: Schema.optionalKey(Schema.String),
 });
-export const formats =
+const formats =
   /\b(epub|pdf|mobi|azw3|fb2|djvu|cbz|cbr|mp3|m4b|m4a|flac|ogg|opus|zip)\b/i;
-export const audioFormats = new Set([
-  "mp3",
-  "m4b",
-  "m4a",
-  "flac",
-  "ogg",
-  "opus",
-]);
+const audioFormats = new Set(["mp3", "m4b", "m4a", "flac", "ogg", "opus"]);
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
-export function bytes(value: string): number | null {
+function bytes(value: string): number | null {
   const match = /([\d.]+)\s*(bytes?|[kmgt]i?b)\b/i.exec(value);
   if (!match) return null;
   return (
@@ -174,7 +167,7 @@ const MemoryBook = Schema.Struct({
   ),
   languages: Schema.optionalKey(Schema.Array(Schema.String)),
 });
-export const MemoryResponse = Schema.Struct({
+const MemoryResponse = Schema.Struct({
   _items: Schema.NullOr(Schema.Array(MemoryBook)),
 });
 export function parseMemory(body: unknown, mirror: Mirror): Hit[] {

@@ -124,7 +124,7 @@ const createSession = Effect.fnUntraced(function* (
 });
 
 const sessionLocks = new Map<string, Semaphore.Semaphore>();
-export const auth = Effect.fnUntraced(function* (
+const auth = Effect.fnUntraced(function* (
   mirror: Mirror,
   cfg: PluginIndexerConfig,
   accounts: Credentials,
