@@ -51,7 +51,7 @@ Test connection checks helper access and one readable catalogue. It does not ver
 
 Add `"trustedOrigins": ["https://YOUR-TRUSTED-HOST"]` inside an account to restrict
 where its credentials are used. Without this override, the plugin uses Open Slum
-mirrors for that library. `[]` disables credential use; an existing `origin` keeps
+mirrors for that library. `[]` disables credential use; `origin` keeps
 an account pinned to that host. Sessions remain separate per host.
 
 Z-Library also accepts `"userId": "YOUR-ID"` and `"userKey": "YOUR-KEY"` instead
@@ -75,10 +75,6 @@ accepts an HTTPS origin and needs no API key.
 Anna’s Archive and LibGen still use HTML search. LibGen also uses website download
 links; Memory uses JSON catalogue file links and Liber3 uses IPFS links. API
 failures never switch Anna or Z-Library to anonymous downloads.
-
-Welib and LibSTC are no longer supported. Saved selections skip them; choose
-another library if they were your only selections. BookOrbit’s logs identify
-sources that could not complete a search.
 
 </details>
 
