@@ -1539,3 +1539,77 @@ test("account rejection keeps its failure kind through search aggregation", asyn
   );
   assert.equal(h.calls.length, 1);
 });
+
+test("stalled catalogue mirrors yield to healthy alternatives within the search budget", async () => {
+  const config = cfg("libgen");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          libgen: [
+            "https://stalled-search.example",
+            "https://working-search.example",
+          ],
+        }),
+      );
+    if (url.hostname === "stalled-search.example")
+      return new Promise<Response>(() => {});
+    return new Response(libgenHtml());
+  });
+  const results = await plugin.search(
+    q,
+    config,
+    h.value,
+    AbortSignal.timeout(4500),
+  );
+  assert.equal(results.length, 1);
+  assert(
+    h.calls.some(
+      ({ url }) => new URL(url).hostname === "working-search.example",
+    ),
+  );
+});
+
+test("stalled directory refresh uses a recent cache before caller cancellation", async () => {
+  const { discover } = await import("../src/discovery.js");
+  const config = cfg("libgen");
+  let stall = false;
+  const h = host(() =>
+    stall
+      ? new Promise<Response>(() => {})
+      : new Response(directory({ libgen: ["https://cached-library.example"] })),
+  );
+  const lookup = (refresh: boolean) =>
+    Effect.runPromise(
+      discover(config.baseUrl, refresh).pipe(
+        Effect.provideService(Network, { host: h.value }),
+      ),
+      { signal: AbortSignal.timeout(4500) },
+    );
+  const initial = await lookup(false);
+  stall = true;
+  assert.deepEqual(await lookup(true), initial);
+  assert(
+    h.logs.some((message) => message.includes("last successful directory")),
+  );
+});
+
+test("retry schedules stop after two retries even without caller cancellation", async () => {
+  const h = host(
+    () =>
+      new Response("Unavailable", {
+        status: 503,
+        headers: { "Retry-After": "0" },
+      }),
+  );
+  await assert.rejects(
+    Effect.runPromise(
+      request("https://attempt-cap.example/search").pipe(
+        Effect.provideService(Network, { host: h.value }),
+      ),
+      { signal: AbortSignal.timeout(2500) },
+    ),
+    /HTTP 503/,
+  );
+  assert.equal(h.calls.length, 3);
+});

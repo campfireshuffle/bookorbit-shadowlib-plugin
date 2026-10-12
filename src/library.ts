@@ -90,7 +90,7 @@ const searchAll = Effect.fnUntraced(function* (
   mirrors: Mirror[],
   warming = false,
 ) {
-  const { host } = yield* Network;
+  const { host, browser } = yield* Network;
   const { enabled } = yield* settings(cfg);
   const outcomes = yield* Effect.forEach(
     enabled,
@@ -107,6 +107,20 @@ const searchAll = Effect.fnUntraced(function* (
         let last: SourceError = failure(`${family}: no working catalogue.`);
         for (const mirror of candidates) {
           const result = yield* searchMirror(mirror, q, cfg, accounts).pipe(
+            Effect.timeoutOrElse({
+              duration: warming
+                ? "20 seconds"
+                : browser
+                  ? "6 seconds"
+                  : "3 seconds",
+              orElse: () =>
+                Effect.fail(
+                  failure(
+                    `${mirror.origin}: catalogue lookup timed out; trying another mirror.`,
+                    "timeout",
+                  ),
+                ),
+            }),
             Effect.result,
           );
           if (Result.isSuccess(result)) {

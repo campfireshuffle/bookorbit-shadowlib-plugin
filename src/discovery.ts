@@ -69,6 +69,11 @@ export const discover = Effect.fnUntraced(function* (
     return mirrors;
   });
   return yield* fresh.pipe(
+    Effect.timeoutOrElse({
+      duration: "3 seconds",
+      orElse: () =>
+        Effect.fail(failure("Open Slum refresh timed out.", "timeout")),
+    }),
     Effect.catch((error) =>
       Effect.gen(function* () {
         if (!cached || now - cached.at >= 24 * 60 * 60 * 1000)
