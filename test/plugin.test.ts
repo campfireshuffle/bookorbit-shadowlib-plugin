@@ -128,9 +128,61 @@ test("credential JSON must bind secrets to an HTTPS origin and does not echo mal
     (e) => e instanceof Error && !e.message.includes(secret),
   );
 });
-test("each library is searched even after Anna's succeeds; a failed mirror falls back", async () => {
-  const config = cfg();
+test("missing accounts skip Anna and Z-Library while public libraries remain searchable", async () => {
+  const config = cfg("annas,zlibrary,memory");
   const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          annas: ["https://unconfigured-anna.example"],
+          zlibrary: ["https://unconfigured-zlib.example"],
+          other: ["https://library.memoryoftheworld-public.example"],
+        }),
+      );
+    assert.equal(url.origin, "https://library.memoryoftheworld-public.example");
+    return Response.json(memoryBody());
+  });
+  const results = await plugin.search(
+    q,
+    config,
+    h.value,
+    new AbortController().signal,
+  );
+  assert.equal(results.length, 1);
+  assert.equal(JSON.parse(results[0].guid).locations[0].family, "memory");
+  assert.equal((await plugin.test(config, h.value)).success, true);
+  assert(!h.calls.some(({ url }) => /unconfigured-/.test(url)));
+});
+
+test("account-only selections explain setup without contacting libraries or helpers", async () => {
+  for (const family of ["annas", "zlibrary", "annas,zlibrary"]) {
+    const config = cfg(family);
+    config.settings!.browserHelperUrl = "https://unused-helper.example";
+    const h = host(() => {
+      throw Error("Unexpected network request");
+    });
+    await assert.rejects(
+      plugin.search(q, config, h.value, new AbortController().signal),
+      /Add credentials/,
+    );
+    const result = await plugin.test(config, h.value);
+    assert.equal(result.success, false);
+    assert("error" in result);
+    assert.match(result.error, /API key field/);
+    assert.equal(h.calls.length, 0);
+  }
+});
+
+test("each library is searched even after Anna's succeeds; a failed mirror falls back", async () => {
+  const config = cfg(
+    "annas,libgen,memory",
+    JSON.stringify({ annas: { key: "catalogue-fixture" } }),
+  );
+  const h = host((url) => {
+    if (url.pathname === "/account/")
+      return new Response("signed in", {
+        headers: { "Set-Cookie": "aa_session=fixture; Secure" },
+      });
     if (url.origin === config.baseUrl)
       return new Response(
         directory({
@@ -271,10 +323,10 @@ test("long Retry-After is honored by skipping retries and cooling down the host"
   assert.equal(h.calls.length, 1);
 });
 test("cancellation stops scheduled retries", async () => {
-  const config = cfg("annas");
+  const config = cfg("libgen");
   const h = host((url) =>
     url.origin === config.baseUrl
-      ? new Response(directory({ annas: ["https://cancel.example"] }))
+      ? new Response(directory({ libgen: ["https://cancel.example"] }))
       : new Response("Unavailable", { status: 502 }),
   );
   const controller = new AbortController();
@@ -471,10 +523,17 @@ test("tampered release identifiers cannot cause credential forwarding", async ()
 });
 
 test("parallel sources stay within the concurrency bound and results include each source", async () => {
-  const config = cfg("annas,libgen,memory");
+  const config = cfg(
+    "annas,libgen,memory",
+    JSON.stringify({ annas: { key: "catalogue-fixture" } }),
+  );
   let active = 0;
   let peak = 0;
   const h = host(async (url) => {
+    if (url.pathname === "/account/")
+      return new Response("signed in", {
+        headers: { "Set-Cookie": "aa_session=fixture; Secure" },
+      });
     if (url.origin === config.baseUrl)
       return new Response(
         directory({
@@ -662,12 +721,19 @@ test("Z-Library size metadata keeps valid whole bytes and leaves unknown sizes u
 });
 
 test("test connection refreshes discovery and refuses a reachable but unsearchable site", async () => {
-  const config = cfg("annas");
-  const h = host((url) =>
-    url.origin === config.baseUrl
-      ? new Response(directory({ annas: ["https://layout-unknown.example"] }))
-      : new Response("<html><title>A website, not a catalogue</title></html>"),
+  const config = cfg(
+    "annas",
+    JSON.stringify({ annas: { key: "catalogue-fixture" } }),
   );
+  const h = host((url) => {
+    if (url.pathname === "/account/")
+      return new Response("signed in", {
+        headers: { "Set-Cookie": "aa_session=fixture; Secure" },
+      });
+    return url.origin === config.baseUrl
+      ? new Response(directory({ annas: ["https://layout-unknown.example"] }))
+      : new Response("<html><title>A website, not a catalogue</title></html>");
+  });
   const result = await plugin.test(config, h.value);
   assert.equal(result.success, false);
   assert("error" in result);
@@ -729,14 +795,13 @@ test("Liber3 discovers its gateway without running its script and decodes the pu
 
 test("browser challenges at 200 or 503 fall back once and cool down without requiring credentials", async () => {
   for (const status of [200, 503]) {
-    const config = cfg("annas,libgen");
+    const config = cfg("libgen");
     const blocked = `https://challenge-${status}.example`;
     const h = host((url) => {
       if (url.origin === config.baseUrl)
         return new Response(
           directory({
-            annas: [blocked],
-            libgen: [`https://challenge-fallback-${status}.example`],
+            libgen: [blocked, `https://challenge-fallback-${status}.example`],
           }),
         );
       if (url.origin === blocked)
@@ -1013,11 +1078,19 @@ test("trustedOrigins replaces discovery defaults, including an empty override", 
         assert.equal(init?.headers?.Cookie, undefined);
       return new Response(annaHtml());
     });
-    assert.equal(
-      (await plugin.search(q, config, h.value, new AbortController().signal))
-        .length,
-      1,
-    );
+    if (trustedOrigins.length) {
+      assert.equal(
+        (await plugin.search(q, config, h.value, new AbortController().signal))
+          .length,
+        1,
+      );
+    } else {
+      await assert.rejects(
+        plugin.search(q, config, h.value, new AbortController().signal),
+        /Add credentials/,
+      );
+      assert.equal(h.calls.length, 0);
+    }
     assert.equal(
       h.calls.filter((c) => new URL(c.url).pathname === "/account/").length,
       trustedOrigins.length,
@@ -1104,12 +1177,7 @@ test("Z-Library directory account uses the API on mirrors without a pinned origi
   const others = h.calls.filter(
     (c) => new URL(c.url).hostname === "other-family.example",
   );
-  assert.equal(others.length, 1);
-  for (const call of others) {
-    assert.equal(call.init?.headers?.Cookie, undefined);
-    assert.equal(call.init?.headers?.["remix-userkey"], undefined);
-    assert.equal(call.init?.body, undefined);
-  }
+  assert.equal(others.length, 0);
   assert.equal(
     h.calls.filter((c) => c.url.endsWith("/eapi/book/search")).length,
     2,
@@ -1160,7 +1228,10 @@ test("Anna's file fallback reuses the directory account key on the next mirror",
 });
 
 test("browser helper clears public challenges and reuses a host-scoped session", async () => {
-  const config = cfg("annas");
+  const config = cfg(
+    "annas",
+    JSON.stringify({ annas: { key: "helper-membership-fixture" } }),
+  );
   config.settings = {
     libraries: "annas",
     browserHelperUrl: "https://solver.example/",
@@ -1173,6 +1244,7 @@ test("browser helper clears public challenges and reuses a host-scoped session",
       );
     if (url.hostname === "solver.example") {
       assert.equal(url.pathname, "/v1");
+      assert(!init!.body!.includes("helper-membership-fixture"));
       const command = JSON.parse(init!.body!);
       commands.push(command);
       return Response.json({
@@ -1225,6 +1297,7 @@ test("helper tokens stay bound to the helper and failed sessions recover", async
   const config = cfg(
     "annas",
     JSON.stringify({
+      annas: { key: "helper-membership-fixture" },
       browserHelper: {
         origin: "https://token-helper.example",
         token: "synthetic-helper-token",
@@ -1599,7 +1672,7 @@ test("invalid API download URLs remain typed failures and allow another mirror",
   }
 });
 
-test("account rejection keeps its failure kind through search aggregation", async () => {
+test("missing accounts return a typed configuration failure", async () => {
   const config = cfg("zlibrary");
   const h = host((url) => {
     assert.equal(url.origin, config.baseUrl);
@@ -1611,11 +1684,11 @@ test("account rejection keeps its failure kind through search aggregation", asyn
     plugin.search(q, config, h.value, new AbortController().signal),
     (error: Error & { kind?: string }) => {
       assert.equal(error.kind, "unauthorized");
-      assert.match(error.message, /requires account credentials/);
+      assert.match(error.message, /Add credentials/);
       return true;
     },
   );
-  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls.length, 0);
 });
 
 test("stalled catalogue mirrors yield to healthy alternatives within the search budget", async () => {
@@ -1852,8 +1925,15 @@ test("paid Anna searches use the configured helper first while downloads use the
 });
 
 test("malformed catalogue links and Liber3 entrypoints do not discard a healthy library", async () => {
-  const config = cfg("annas,libgen,liber3");
+  const config = cfg(
+    "annas,libgen,liber3",
+    JSON.stringify({ annas: { key: "catalogue-fixture" } }),
+  );
   const h = host((url) => {
+    if (url.pathname === "/account/")
+      return new Response("signed in", {
+        headers: { "Set-Cookie": "aa_session=fixture; Secure" },
+      });
     if (url.origin === config.baseUrl)
       return new Response(
         directory({

@@ -194,6 +194,19 @@ const prepare = Effect.fnUntraced(function* (
         ? error
         : failure("Invalid encrypted credential JSON.", "unauthorized"),
   });
+  const enabled = configuration.enabled.filter((family) =>
+    family === "annas" || family === "zlibrary"
+      ? Boolean(accounts[family]) &&
+        accounts[family]?.trustedOrigins?.length !== 0
+      : true,
+  );
+  if (!enabled.length)
+    return yield* Effect.fail(
+      failure(
+        "Add credentials for Anna’s Archive or Z-Library in the API key field, or select LibGen, Memory of the World or Liber3. Check trustedOrigins if account access is disabled.",
+        "unauthorized",
+      ),
+    );
   const discovered = yield* discover(cfg.baseUrl, refresh);
   for (const family of ["annas", "zlibrary"] as const) {
     const account = accounts[family];
@@ -205,8 +218,12 @@ const prepare = Effect.fnUntraced(function* (
           discovered.filter((m) => m.family === family).map((m) => m.origin),
       };
   }
-  const mirrors = configuredMirrors(discovered, accounts);
-  return { accounts, mirrors, browser, ...configuration };
+  const mirrors = configuredMirrors(discovered, accounts).filter((mirror) =>
+    mirror.family !== "annas" && mirror.family !== "zlibrary"
+      ? true
+      : Boolean(accountForMirror(accounts, mirror)),
+  );
+  return { accounts, mirrors, browser, ...configuration, enabled };
 });
 
 export const search = Effect.fnUntraced(function* (

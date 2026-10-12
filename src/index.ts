@@ -66,7 +66,7 @@ export default {
       minItems: 1,
       label: "Libraries to search",
       default: families.join(","),
-      hint: "Choose which libraries to search. Z-Library requires an account; Anna’s Archive downloads require a paid membership key.",
+      hint: "Anna’s Archive and Z-Library are searched only when credentials are added in the API key field. Anna’s Archive needs a paid membership key; Z-Library needs an account.",
     },
     {
       key: "ipfsOrigin",
