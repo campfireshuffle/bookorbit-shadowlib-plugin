@@ -250,7 +250,6 @@ export const test = Effect.fnUntraced(
             ),
         }),
       );
-    // Connection proof needs one readable catalogue, not every mirror's homepage.
     const releases = yield* Effect.raceAll(
       enabled.map((family) =>
         searchAll(
