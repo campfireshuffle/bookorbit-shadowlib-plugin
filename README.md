@@ -1,77 +1,70 @@
-# BookOrbit ShadowLib
+# BookOrbit ShadowLib plugin
 
-Search Anna’s Archive, LibGen, Z-Library, Memory of the World, Liber3, WeLib and
-LibSTC from BookOrbit. Mirrors come from [Open Slum](https://open-slum.org/).
-Results are combined and deduplicated while keeping different formats and editions.
+This BookOrbit plugin searches and dedupes results from the book and audiobook libraries listed on
+[Open Slum](https://open-slum.org/).
 
 ## Install
 
-1. [Download index.mjs](https://github.com/sarimabbas/bookorbit-shadowlib-plugin/releases/latest/download/index.mjs).
-2. In BookOrbit, open **Settings → Server → Requests → Install a plugin** and upload it.
-3. Add **BookOrbit ShadowLib** as a source. Keep the default base URL and choose your libraries.
-4. Leave **API key** empty for public access, then click **Test connection**.
+1. Download `index.mjs` from the [latest release](https://github.com/sarimabbas/bookorbit-shadowlib-plugin/releases/latest).
+2. In BookOrbit, open **Settings → Server → Requests → Install a plugin** and
+   upload it.
+3. Add **BookOrbit ShadowLib** as a source. Keep the base URL as
+   `https://open-slum.org` and choose the libraries to search.
+4. Leave **API key** empty to use public access, then click **Test connection**.
 
-Disable separate sources for the same libraries to avoid duplicate searches.
-No torrent or Usenet client is needed.
+## Updates
 
-For updates, click **Check for updates** or enable **Install signed updates
-automatically**. BookOrbit verifies each update’s hash and signature.
+After installing this version, use **Check for updates** in BookOrbit. Enable
+**Install signed updates automatically** if you want updates applied for you.
 
 ## Optional accounts
 
-Enter only the accounts you use as JSON in the source’s **API key** field:
+Enter JSON in the source's **API key** field. BookOrbit encrypts this field (you must have
+`BOOK_REQUEST_ENCRYPTION_KEY` configured). Include only the accounts you use:
 
 ```json
 {
-  "annas": { "key": "YOUR-ANNA-ACCOUNT-KEY" },
-  "zlibrary": { "email": "YOUR-EMAIL", "password": "YOUR-PASSWORD" }
+  "annas": {
+    "key": "YOUR-ANNA-ACCOUNT-KEY"
+  },
+  "zlibrary": {
+    "email": "YOUR-EMAIL",
+    "password": "YOUR-PASSWORD"
+  }
 }
 ```
 
-BookOrbit encrypts this field; its server needs `BOOK_REQUEST_ENCRYPTION_KEY`.
-Each account is reused across Open Slum’s mirrors for that library, with separate
-sessions per host. This trusts Open Slum to identify hosts that may receive your credentials.
+By default, accounts are shared with Open Slum mirrors for the same library,
+with separate sessions per host. Add `"trustedOrigins": ["https://YOUR-TRUSTED-HOST"]`
+to an account to restrict credential sharing; `[]` disables credential use.
+Existing `origin` configs stay pinned; remove `origin` to use discovered mirrors.
 
-<details>
-<summary>Restrict mirrors or use existing account settings</summary>
+## Caveats
 
-Add `"trustedOrigins": ["https://YOUR-TRUSTED-HOST"]` to an account to replace
-the directory default. An empty list disables credential use. Explicit origins
-can add mirrors missing from the directory; use HTTPS origins without paths.
+- Browser checks can block access. The plugin detects
+  blocks and tries some alternatives.
+- **Test connection** refreshes the mirror list and checks catalogue searches. If
+  a search fails, BookOrbit's logs show which sources were unavailable.
 
-An existing `origin` alone keeps the account pinned. Remove it for directory
-defaults, or keep it with `trustedOrigins` to choose a preferred mirror.
-Z-Library also accepts `userId` and `userKey` instead of email/password.
+## Development
 
-Anna’s download API puts its key in the request URL, which server or proxy logs
-may retain. Authenticated redirects never forward credentials to another host.
-
-</details>
-
-## If a search fails
-
-**Test connection** refreshes the mirror list and tests catalogue searches.
-Check BookOrbit’s logs for individual source failures. A successful test does
-not mean every library is accessible.
-
-Browser challenges can block a source even from a residential IP. The plugin
-tries alternatives but does not solve interactive challenges. WeLib and LibSTC
-support is experimental. Ebooks and individually indexed audiobook files work;
-audiobook archives may not be recognized. Sci-Hub and software archives are excluded.
-
-<details>
-<summary>Build from source</summary>
-
-With Node.js 26 and pnpm installed:
+Requires Node.js and pnpm. The plugin uses TypeScript and Effect.
 
 ```sh
 pnpm install
 pnpm build
 ```
 
-Upload `dist/index.mjs` to BookOrbit. The build checks the 512 KiB upload limit
-and verifies the module loads. Contributors should run `pnpm check` before a PR.
+Upload the resulting `dist/index.mjs` to BookOrbit. Run `pnpm check` before
+submitting a pull request.
 
-</details>
+The vendored BookOrbit plugin API and its license are in `vendor/`.
 
-MIT licensed. Vendored BookOrbit types retain their upstream license in `vendor/`.
+## Releasing
+
+Bump the version in `package.json` and merge a pull request after checks pass.
+GitHub Actions automatically builds, signs, and publishes `index.mjs` and its
+update manifest after checks pass.
+The signing key is held in the main-only `plugin-signing` environment.
+
+MIT licensed; vendored files retain their upstream licenses.

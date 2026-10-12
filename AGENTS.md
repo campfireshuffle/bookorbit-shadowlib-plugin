@@ -24,4 +24,4 @@ guide doesn't cover, search through the source code in `node_modules/effect/src`
 - Prefer private helpers and small interfaces. Reuse `Effect.result` for recoverable outcomes; validate configuration through typed errors.
 - `pnpm lint` runs Knip for unused files, exports and dependencies. Vendored upstream types stay unchanged.
 - `pnpm build` produces the standalone `dist/index.mjs`. `pnpm check` also verifies formatting, Knip, types, tests and BookOrbit upload compatibility.
-- To release, bump `package.json`, merge a passing PR, then approve the `plugin-signing` deployment. Actions signs and publishes the bundle and update manifest.
+- To release, bump `package.json` and merge a passing PR. Actions automatically signs and publishes the bundle and update manifest from the main-only `plugin-signing` environment.
