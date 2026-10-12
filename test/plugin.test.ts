@@ -1419,3 +1419,123 @@ test("configuration errors keep safe actionable guidance with or without a helpe
     assert.equal(h.calls.length, 0);
   }
 });
+
+test("incomplete or wrong-provider account JSON fails before network access", async () => {
+  const secret = "private-validation-fixture";
+  for (const account of [
+    { annas: {} },
+    { annas: { key: "" } },
+    { annas: { email: "fixture@example.com", password: secret } },
+    { zlibrary: { email: "fixture@example.com" } },
+    { zlibrary: { password: secret } },
+    { zlibrary: { userId: "42" } },
+    { zlibrary: { userKey: secret } },
+    { zlibrary: { key: secret } },
+    { browserHelper: { origin: "https://helper.example", token: "" } },
+  ]) {
+    const h = host(() => {
+      throw Error("Unexpected network call");
+    });
+    await assert.rejects(
+      plugin.search(
+        q,
+        cfg("annas", JSON.stringify(account)),
+        h.value,
+        new AbortController().signal,
+      ),
+      (error: Error) => {
+        assert.match(
+          error.message,
+          /Anna needs key; Z-Library needs email\/password or userId\/userKey/,
+        );
+        assert(!error.message.includes(secret));
+        return true;
+      },
+    );
+    assert.equal(h.calls.length, 0);
+  }
+});
+
+test("invalid library settings fail before discovery", async () => {
+  for (const settings of [
+    { libraries: "typo" },
+    { libraries: "welib,libstc" },
+    { libraries: "memory", ipfsOrigin: "http://invalid.example" },
+  ]) {
+    const config = cfg();
+    config.settings = settings;
+    const h = host(() => {
+      throw Error("Unexpected discovery request");
+    });
+    await assert.rejects(
+      plugin.search(q, config, h.value, new AbortController().signal),
+    );
+    assert.equal(h.calls.length, 0);
+  }
+});
+
+test("invalid API download URLs remain typed failures and allow another mirror", async () => {
+  for (const badUrl of [
+    "not a URL",
+    "http://insecure.example/file",
+    "https://user:private-url-fixture@files.example/file",
+  ]) {
+    const config = cfg(
+      "annas",
+      JSON.stringify({ annas: { key: "synthetic-key" } }),
+    );
+    const first = "https://invalid-api-url.example";
+    const second = "https://valid-api-url.example";
+    const h = host((url) =>
+      url.origin === config.baseUrl
+        ? new Response(directory({ annas: [first, second] }))
+        : Response.json({
+            download_url:
+              url.origin === first ? badUrl : "https://files.example/book.epub",
+          }),
+    );
+    const release = mergeHits(
+      [
+        {
+          title: q.title,
+          format: "epub",
+          sizeBytes: null,
+          seeders: null,
+          leechers: null,
+          location: { family: "annas", origin: first, id: "a".repeat(32) },
+        },
+      ],
+      "ebook",
+      null,
+      1,
+    )[0];
+    const file = await plugin.resolveFile(
+      release,
+      config,
+      h.value,
+      new AbortController().signal,
+    );
+    assert.equal(file.url, "https://files.example/book.epub");
+    assert(h.calls.some(({ url }) => new URL(url).origin === second));
+    assert(!h.logs.join(" ").includes("private-url-fixture"));
+  }
+});
+
+test("account rejection keeps its failure kind through search aggregation", async () => {
+  const config = cfg("zlibrary");
+  const h = host((url) => {
+    assert.equal(url.origin, config.baseUrl);
+    return new Response(
+      directory({ zlibrary: ["https://missing-account.example"] }),
+    );
+  });
+  await assert.rejects(
+    plugin.search(q, config, h.value, new AbortController().signal),
+    (error: Error & { kind?: string }) => {
+      assert.equal(error.kind, "unauthorized");
+      assert.match(error.message, /requires account credentials/);
+      return true;
+    },
+  );
+  assert.equal(h.calls.length, 1);
+});

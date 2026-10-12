@@ -148,10 +148,18 @@ const searchAll = Effect.fnUntraced(function* (
   const results = outcomes.flatMap(({ outcome }) =>
     Result.isSuccess(outcome) ? [outcome.success] : [],
   );
-  if (!results.length)
-    return yield* Effect.fail(
-      failure(`No library completed a search. ${failures.join(" ")}`),
+  if (!results.length) {
+    const kinds = outcomes.flatMap(({ outcome }) =>
+      Result.isFailure(outcome) ? [outcome.failure.kind] : [],
     );
+    const kind = kinds[0] ?? "error";
+    return yield* Effect.fail(
+      failure(
+        `No library completed a search. ${failures.join(" ")}`,
+        kinds.every((value) => value === kind) ? kind : "error",
+      ),
+    );
+  }
   // Interleave sources so a large catalogue cannot fill the limit before others contribute.
   const mixed: Hit[] = [];
   const count = Math.max(0, ...results.map((r) => r.length));
@@ -211,6 +219,7 @@ const prepare = Effect.fnUntraced(function* (
   refresh = false,
 ) {
   const { host } = yield* Network;
+  yield* settings(cfg);
   const browser = yield* browserHelper(cfg, host);
   const accounts = yield* Effect.try({
     try: () => credentials(cfg.credential),
@@ -342,9 +351,18 @@ export const resolveFile = Effect.fnUntraced(
         host.logger.warn(`${location.family}: ${last.message}`);
         continue;
       }
-      const url = new URL(result.success);
-      if (url.protocol !== "https:" || url.username || url.password) {
-        last = failure("Source returned an unsafe download URL.");
+      const destination = yield* Effect.try({
+        try: () => {
+          const url = new URL(result.success);
+          if (url.protocol !== "https:" || url.username || url.password)
+            throw Error("Unsafe URL");
+          return url;
+        },
+        catch: () =>
+          failure("Source returned an invalid or unsafe download URL."),
+      }).pipe(Effect.result);
+      if (Result.isFailure(destination)) {
+        last = destination.failure;
         continue;
       }
       const format = (release.format ?? "epub")
@@ -356,7 +374,7 @@ export const resolveFile = Effect.fnUntraced(
           .replace(/^\.+/, "_")
           .slice(0, 180) || "book";
       return {
-        url: url.href,
+        url: destination.success.href,
         fileName: `${title}.${format}`,
         format,
         sizeBytes: release.sizeBytes,
