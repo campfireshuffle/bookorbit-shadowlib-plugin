@@ -24,15 +24,22 @@ export const GuidSchema = Schema.Struct({
   locations: Schema.Array(LocationSchema),
   md5: Schema.optionalKey(Schema.String),
 });
-const formats =
-  /\b(epub|pdf|mobi|azw3|fb2|djvu|cbz|cbr|mp3|m4b|m4a|flac|ogg|opus|zip)\b/i;
+const extensions =
+  "epub|pdf|mobi|azw3|fb2|djvu|cbz|cbr|mp3|m4b|m4a|flac|ogg|opus|zip";
+const formats = new RegExp(`\\b(${extensions})\\b`, "i");
+const bookFile = new RegExp(`\\.(?:${extensions})(?:$|[?#])`, "i");
 const audioFormats = new Set(["mp3", "m4b", "m4a", "flac", "ogg", "opus"]);
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
+function wholeBytes(value: number | null): number | null {
+  if (value === null) return null;
+  const size = Math.round(value);
+  return Number.isSafeInteger(size) && size >= 0 ? size : null;
+}
 function bytes(value: string): number | null {
   const match = /([\d.]+)\s*(bytes?|[kmgt]i?b)\b/i.exec(value);
   if (!match) return null;
-  return (
-    Number(match[1]) * 1024 ** ("kmgt".indexOf(match[2][0].toLowerCase()) + 1)
+  return wholeBytes(
+    Number(match[1]) * 1024 ** ("kmgt".indexOf(match[2][0].toLowerCase()) + 1),
   );
 }
 function hit(
@@ -332,6 +339,7 @@ export function mergeHits(
         );
       return {
         ...release,
+        sizeBytes: wholeBytes(release.sizeBytes),
         guid: JSON.stringify({
           locations: identifiers,
           ...(md5 ? { md5 } : {}),
@@ -345,7 +353,19 @@ export function downloadLink(html: string, origin: string): string | undefined {
   const candidate = $(
     'a[href^="get.php?"],a[href*="/get.php?"],a[href*="/dl/"],a[href*="/download/"],a[download],a[href$=".epub"],a[href$=".pdf"],a[href$=".m4b"],a[href$=".mp3"]',
   )
-    .filter((_, el) => !/\.torrent(?:$|\?)/i.test($(el).attr("href") ?? ""))
+    .filter((_, el) => {
+      const link = $(el);
+      const href = link.attr("href") ?? "";
+      if (link.closest('template,[hidden],[aria-hidden="true"]').length)
+        return false;
+      if (/\.torrent(?:$|\?)/i.test(href)) return false;
+      if (!link.is("[download]")) return true;
+      const filename = link.attr("download") ?? "";
+      return (
+        bookFile.test(filename || href) ||
+        (!filename && /get\.php\?|\/dl\/|\/download\//i.test(href))
+      );
+    })
     .first()
     .attr("href");
   if (!candidate) return undefined;
