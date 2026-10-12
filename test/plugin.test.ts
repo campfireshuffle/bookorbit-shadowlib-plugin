@@ -1055,3 +1055,183 @@ test("Anna's file fallback reuses the directory account key on the next mirror",
     "https://files.example/fallback.epub",
   );
 });
+
+test("browser helper clears public challenges and reuses a host-scoped session", async () => {
+  const config = cfg("zlibrary");
+  config.settings = {
+    libraries: "zlibrary",
+    browserHelperUrl: "https://solver.example/",
+  };
+  const commands: Record<string, unknown>[] = [];
+  const h = host((url, init) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({ zlibrary: ["https://zlib-browser.example"] }),
+      );
+    if (url.hostname === "solver.example") {
+      assert.equal(url.pathname, "/v1");
+      const command = JSON.parse(init!.body!);
+      commands.push(command);
+      return Response.json({
+        status: "ok",
+        session: command.session,
+        ...(command.cmd === "request.get"
+          ? {
+              solution: {
+                status: 200,
+                url: command.url,
+                response: `<z-bookcard id="123" href="/book/123/fixture.html" extension="epub" language="english"><div slot="title">${q.title}</div><div slot="author">${q.author}</div></z-bookcard>`,
+              },
+            }
+          : {}),
+      });
+    }
+    return new Response("<title>Checking your browser</title>", {
+      status: 503,
+      headers: { "Content-Type": "text/html" },
+    });
+  });
+  for (let i = 0; i < 2; i++) {
+    const releases = await plugin.search(
+      q,
+      config,
+      h.value,
+      AbortSignal.timeout(3000),
+    );
+    assert.equal(releases.length, 1);
+    assert.equal(releases[0].format, "epub");
+  }
+  assert.equal(commands.filter((c) => c.cmd === "sessions.create").length, 1);
+  const gets = commands.filter((c) => c.cmd === "request.get");
+  assert.equal(gets.length, 2);
+  assert.equal(gets[0].session, gets[1].session);
+  assert.equal(gets[0].maxTimeout, 4500);
+  assert.equal((await plugin.test(config, h.value)).success, true);
+  assert.equal(commands.at(-1)?.maxTimeout, 20000);
+  const { browserHelper } = await import("../src/browser.js");
+  const helper = await Effect.runPromise(browserHelper(config, h.value));
+  await Effect.runPromise(
+    helper!.fetchPage("https://another-zlib.example/s/fixture", 4500),
+  );
+  const created = commands.filter((c) => c.cmd === "sessions.create");
+  assert.equal(created.length, 2);
+  assert.notEqual(created[0].session, created[1].session);
+});
+
+test("helper tokens stay bound to the helper and failed sessions recover", async () => {
+  const config = cfg(
+    "annas",
+    JSON.stringify({
+      browserHelper: {
+        origin: "https://token-helper.example",
+        token: "synthetic-helper-token",
+      },
+    }),
+  );
+  config.settings = {
+    libraries: "annas",
+    browserHelperUrl: "https://token-helper.example/v1",
+  };
+  let fail = true;
+  let creates = 0;
+  const h = host((url, init) => {
+    if (url.hostname === "token-helper.example") {
+      assert.equal(
+        init?.headers?.Authorization,
+        "Bearer synthetic-helper-token",
+      );
+      const command = JSON.parse(init!.body!);
+      if (command.cmd === "sessions.create") creates++;
+      if (command.cmd === "request.get") {
+        if (fail) {
+          fail = false;
+          return Response.json({
+            status: "error",
+            message: "Session not found; synthetic-helper-token",
+          });
+        }
+        return Response.json({
+          status: "ok",
+          solution: { status: 200, url: command.url, response: annaHtml() },
+        });
+      }
+      return Response.json({ status: "ok", session: command.session });
+    }
+    assert(!JSON.stringify(init).includes("synthetic-helper-token"));
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({ annas: ["https://anna-browser-restart.example"] }),
+      );
+    return new Response("blocked", { status: 403 });
+  });
+  await assert.rejects(
+    plugin.search(q, config, h.value, AbortSignal.timeout(3000)),
+    /Browser helper could not complete/,
+  );
+  assert.equal(
+    (await plugin.search(q, config, h.value, AbortSignal.timeout(3000))).length,
+    1,
+  );
+  assert.equal(creates, 2);
+  assert(!h.logs.join(" ").includes("synthetic-helper-token"));
+  config.settings.browserHelperUrl = "https://different-helper.example";
+  const before = h.calls.length;
+  await assert.rejects(
+    plugin.search(q, config, h.value, AbortSignal.timeout(3000)),
+    /match its origin/,
+  );
+  assert.equal(h.calls.length, before);
+});
+
+test("authenticated requests and rate limits never delegate to a browser helper", async () => {
+  const config = cfg();
+  config.settings = { browserHelperUrl: "https://no-secrets-helper.example" };
+  const { browserHelper } = await import("../src/browser.js");
+  const h = host(() => new Response("denied", { status: 403 }));
+  const browser = await Effect.runPromise(browserHelper(config, h.value));
+  await assert.rejects(
+    Effect.runPromise(
+      request("https://authenticated-browser.example/account/", {
+        method: "POST",
+        body: "key=synthetic-library-secret",
+      }).pipe(Effect.provideService(Network, { host: h.value, browser })),
+    ),
+  );
+  assert.equal(h.calls.length, 1);
+  const throttled = host(
+    () =>
+      new Response("slow down", {
+        status: 429,
+        headers: { "Retry-After": "60" },
+      }),
+  );
+  await assert.rejects(
+    Effect.runPromise(
+      request("https://throttled-browser.example/search").pipe(
+        Effect.provideService(Network, { host: throttled.value, browser }),
+      ),
+    ),
+  );
+  assert.equal(throttled.calls.length, 1);
+  assert.equal(h.calls.length, 1);
+});
+
+test("helper failures explain LAN permissions without echoing host errors", async () => {
+  const config = cfg("zlibrary");
+  config.settings = {
+    libraries: "zlibrary",
+    browserHelperUrl: "http://192.0.2.1:8191",
+  };
+  const h = host(() => {
+    throw Error("private details and credentials");
+  });
+  const { browserHelper } = await import("../src/browser.js");
+  const helper = await Effect.runPromise(browserHelper(config, h.value));
+  await assert.rejects(
+    Effect.runPromise(helper!.check),
+    (e) =>
+      e instanceof Error &&
+      e.message.includes("Allow private IP addresses") &&
+      !e.message.includes("private details"),
+  );
+});

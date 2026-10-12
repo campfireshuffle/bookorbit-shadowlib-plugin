@@ -1,3 +1,4 @@
+import type { BrowserHelper } from "./browser.js";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -9,14 +10,15 @@ import {
   SourceError,
 } from "./model.js";
 
-export class Network extends Context.Service<Network, { host: PluginHost }>()(
-  "bookorbit-shadowlib-plugin/Network",
-) {}
+export class Network extends Context.Service<
+  Network,
+  { host: PluginHost; browser?: BrowserHelper; browserTimeoutMs?: number }
+>()("bookorbit-shadowlib-plugin/Network") {}
 const cooldowns = new Map<string, { until: number; error: SourceError }>();
 function challenged(headers: Headers, body = ""): boolean {
   return (
     headers.get("cf-mitigated") === "challenge" ||
-    /<title[^>]*>\s*(?:just a moment|checking your browser|ddos-guard|verify (?:you are|you're) human)/i.test(
+    /<title[^>]*>\s*(?:just a moment|checking your browser|ddos-guard|making sure you're not a bot|verify (?:you are|you're) human)/i.test(
       body,
     ) ||
     /(?:id=["']challenge-form["']|id=["']captcha-container["']|window\._cf_chl_opt\s*=)/i.test(
@@ -36,7 +38,7 @@ export const request = Effect.fnUntraced(function* (
   url: string,
   init: PluginRequestInit = {},
 ) {
-  const { host } = yield* Network;
+  const { host, browser, browserTimeoutMs = 4500 } = yield* Network;
   const destination = new URL(url);
   const origin = destination.origin;
   const authenticated =
@@ -53,7 +55,26 @@ export const request = Effect.fnUntraced(function* (
   const cooldown = [cooldowns.get(origin), cooldowns.get(blockedKey)].find(
     (entry) => entry && entry.until > now,
   );
-  if (cooldown) return yield* Effect.fail(cooldown.error);
+  const publicGet = !authenticated && (!init.method || init.method === "GET");
+  const cleared = Effect.fnUntraced(function* () {
+    if (!browser || !publicGet)
+      return yield* Effect.fail(failure("No browser helper configured."));
+    const response = yield* browser.fetchPage(url, browserTimeoutMs);
+    const body = yield* text(response);
+    if (challenged(response.headers, body))
+      return yield* Effect.fail(
+        failure(
+          "Browser helper returned another challenge. Run Test connection or complete the challenge in the helper.",
+        ),
+      );
+    host.logger.log(`${origin}: public page loaded through browser helper.`);
+    return new Response(body, { headers: { "Content-Type": "text/html" } });
+  });
+  if (cooldown) {
+    if (browser && publicGet && cooldown.error.kind !== "throttled")
+      return yield* cleared();
+    return yield* Effect.fail(cooldown.error);
+  }
   const attempt = Effect.gen(function* () {
     let current = destination;
     let headers: Record<string, string> = {
@@ -90,6 +111,7 @@ export const request = Effect.fnUntraced(function* (
         },
         catch: () => failure("Could not release response."),
       }).pipe(Effect.ignore);
+      if (hop === 3 && browser && publicGet) return yield* cleared();
       if (hop === 3)
         return yield* Effect.fail(
           failure(
@@ -152,6 +174,7 @@ export const request = Effect.fnUntraced(function* (
         },
         catch: () => failure("Could not release response."),
       }).pipe(Effect.ignore);
+      if (browser && publicGet) return yield* cleared();
       return yield* Effect.fail(error);
     }
     if (

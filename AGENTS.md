@@ -13,7 +13,7 @@ guide doesn't cover, search through the source code in `node_modules/effect/src`
 - Use `host.fetch` for every network request; never native fetch, filesystem or shell APIs in the plugin.
 - Credentials belong only in BookOrbit's encrypted credential field, never settings or logs.
 - Default account trust to Open Slum mirrors in the same library family. Honor trustedOrigins overrides (including an empty list) and legacy origin pins. Never share session cookies between hosts or follow authenticated redirects.
-- Do not bypass browser challenges. Surface them and fall back to another source.
+- Delegate public browser challenges only to the operator-configured helper. Never forward library credentials to it; surface unsolved challenges and try alternatives.
 - Run `pnpm check` before delivering `dist/index.mjs`. Tests use synthetic credentials and fixture responses.
 
 # Module design and checks
