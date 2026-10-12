@@ -26,7 +26,7 @@ For future updates, use **Check for updates** or enable **Install signed updates
 ## Accounts
 
 Paste the example for your account into the source’s **API key** field.
-LibGen, Memory of the World, and Liber3 need no credentials; leave the field empty if you only use those.
+LibGen, Memory of the World, and Liber3 need no credentials; leave the field empty if you only use those. Anna’s Archive and Z-Library are skipped until you add their credentials.
 
 **Z-Library** requires a free account. Your daily download limit applies.
 
@@ -39,7 +39,7 @@ LibGen, Memory of the World, and Liber3 need no credentials; leave the field emp
 }
 ```
 
-**Anna’s Archive** downloads require a paid membership key.
+**Anna’s Archive** requires a paid membership key.
 
 ```json
 {
