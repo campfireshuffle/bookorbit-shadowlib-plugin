@@ -539,7 +539,7 @@ test("Z-Library credentials use the encrypted field and file resolution uses its
             title: q.title,
             author: q.author,
             extension: "EPUB",
-            language: "english",
+            language: "English",
           },
         ],
       });

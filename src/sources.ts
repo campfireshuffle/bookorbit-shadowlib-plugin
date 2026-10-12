@@ -222,7 +222,10 @@ export const searchMirror = Effect.fnUntraced(function* (
       bookTitle: book.title,
       author: book.author,
       format: book.extension.toLowerCase(),
-      language: book.language === "english" ? "en" : book.language,
+      language:
+        book.language?.trim().toLowerCase() === "english"
+          ? "en"
+          : book.language,
       md5: book.md5,
       sha256: book.sha256,
       sizeBytes: null,
