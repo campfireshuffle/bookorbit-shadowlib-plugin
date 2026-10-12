@@ -7,7 +7,7 @@ separate formats. Result titles show which libraries supplied each file.
 
 ## Install
 
-1. Download `index.mjs` from the [latest release](https://github.com/sarimabbas/bookorbit-shadowlib-plugin/releases/latest).
+1. Download `index.mjs` from the [latest release](https://github.com/campfireshuffle/bookorbit-shadowlib-plugin/releases/latest).
 2. In BookOrbit, open **Settings → Server → Requests → Install a plugin** and upload it.
 3. Add **BookOrbit ShadowLib** as a source. Keep the base URL as `https://open-slum.org` and select your libraries.
 4. Add account details below if needed, save, and click **Test connection**.
