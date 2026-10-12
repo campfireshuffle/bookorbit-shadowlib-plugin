@@ -10,6 +10,8 @@ guide doesn't cover, search through the source code in `node_modules/effect/src`
 
 # Plugin rules
 
+- Keep user documentation focused on setup and use. Code comments should explain non-obvious behavior or constraints, not development history.
+
 - Use `host.fetch` for every network request; never native fetch, filesystem or shell APIs in the plugin.
 - Credentials belong only in BookOrbit's encrypted credential field, never settings or logs.
 - Default account trust to Open Slum mirrors in the same library family. Honor trustedOrigins overrides (including an empty list) and origin pins. Never share session cookies between hosts or follow authenticated redirects.

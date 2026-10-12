@@ -31,28 +31,23 @@ Paste this JSON into the source’s **API key** field. Include only accounts you
 ```
 
 - **Z-Library:** requires a free account. Your daily download limit applies.
-- **Anna’s Archive:** downloads require a paid membership key. The plugin uses its fast-download API, never free/slow download pages.
+- **Anna’s Archive:** downloads require a paid membership key.
 - **LibGen, Memory of the World, Liber3:** no credentials needed; leave **API key** empty if you use only these.
 
 BookOrbit encrypts account details. Your server needs `BOOK_REQUEST_ENCRYPTION_KEY` configured.
 
 ## Browser checks
 
-If website searches are blocked, enter your existing stock **TRAWL**, **Byparr**,
+If website searches are blocked, enter your **TRAWL**, **Byparr**,
 or **FlareSolverr** URL in **Browser helper URL**. A base URL or `/v1` works.
-For a LAN helper, enable **Allow private IP addresses**. Save and run **Test connection**, then retry your search.
-
-When configured, the helper loads public website pages first; otherwise the plugin
-fetches them directly. Library credentials are never sent to it. API requests stay direct. Some browser checks may still fail.
-Test connection checks helper access and one readable catalogue. It does not verify every source or guarantee a download will work.
+For a local helper, enable **Allow private addresses**. Save and run **Test connection**, then retry your search.
 
 <details>
 <summary>Advanced configuration</summary>
 
-Add `"trustedOrigins": ["https://YOUR-TRUSTED-HOST"]` inside an account to restrict
-where its credentials are used. Without this override, the plugin uses Open Slum
-mirrors for that library. `[]` disables credential use; `origin` keeps
-an account pinned to that host. Sessions remain separate per host.
+Add `"trustedOrigins": ["https://YOUR-TRUSTED-HOST"]` inside an account to choose
+which websites can use its login details. Leave it out to use that library’s
+Open Slum mirrors, or set `"trustedOrigins": []` to disable use of its login details.
 
 Z-Library also accepts `"userId": "YOUR-ID"` and `"userKey": "YOUR-KEY"` instead
 of email/password.
@@ -69,16 +64,12 @@ accounts in the same JSON:
 }
 ```
 
-Its origin must match **Browser helper URL**. Liber3’s **IPFS gateway** setting
-accepts an HTTPS origin and needs no API key.
-
-Anna’s Archive and LibGen still use HTML search. LibGen also uses website download
-links; Memory uses JSON catalogue file links and Liber3 uses IPFS links. API
-failures never switch Anna or Z-Library to anonymous downloads.
+Set `origin` to your **Browser helper URL** without `/v1` or other paths.
+To change **IPFS gateway** for Liber3 downloads, use an HTTPS address without a path.
 
 </details>
 
-## Development
+## Build
 
 With Node.js and pnpm installed:
 
@@ -88,8 +79,6 @@ pnpm check
 pnpm build
 ```
 
-The uploadable file is `dist/index.mjs`. To release, bump `package.json` and merge
-a passing PR; GitHub Actions builds, signs, and publishes the plugin and update
-manifest automatically.
+The uploadable file is `dist/index.mjs`.
 
 MIT licensed. Vendored BookOrbit types retain their upstream license in `vendor/`.
