@@ -1,0 +1,34 @@
+{
+  "name": "bookorbit-open-slum-plugin",
+  "version": "1.0.0",
+  "description": "BookOrbit indexer with Open Slum mirror discovery and encrypted credentials",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.11.2",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.11.2",
+  "type": "module",
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "effect": "^4.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "private": true
+}
