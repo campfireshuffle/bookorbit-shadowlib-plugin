@@ -52,6 +52,13 @@ export default {
     "Open Slum directory origin. Credentials are JSON in the encrypted API key field; never enter them as settings.",
   settingsFields: [
     {
+      key: "browserHelperUrl",
+      type: "string",
+      label: "Browser helper URL",
+      default: "",
+      hint: "Optional TRAWL or FlareSolverr URL (base URL or /v1). For LAN helpers, enable Allow private IP addresses. Run Test connection to warm sessions; leave empty for HTTP only.",
+    },
+    {
       key: "libraries",
       type: "string",
       format: "list",

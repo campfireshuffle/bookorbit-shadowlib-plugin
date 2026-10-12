@@ -17,6 +17,16 @@ This BookOrbit plugin searches and dedupes results from the book and audiobook l
 After installing this version, use **Check for updates** in BookOrbit. Enable
 **Install signed updates automatically** if you want updates applied for you.
 
+## Browser checks
+
+If sites block searches, enter your existing **TRAWL** or **FlareSolverr** URL in
+**Browser helper URL** (a base URL or `/v1` works). For a LAN helper, enable
+**Allow private IP addresses**. Save, run **Test connection** to warm the browser,
+then search again. Leave the URL empty if you do not use a helper.
+
+The helper handles public pages and keeps separate sessions per host. Library
+passwords and keys are never sent to it. Some challenges still need manual help.
+
 ## Optional accounts
 
 Enter JSON in the source's **API key** field. BookOrbit encrypts this field (you must have
@@ -39,10 +49,13 @@ with separate sessions per host. Add `"trustedOrigins": ["https://YOUR-TRUSTED-H
 to an account to restrict credential sharing; `[]` disables credential use.
 Existing `origin` configs stay pinned; remove `origin` to use discovered mirrors.
 
+If your helper requires a bearer token, add
+`"browserHelper": {"origin": "https://YOUR-HELPER", "token": "YOUR-TOKEN"}`
+to the same JSON. Its origin must match **Browser helper URL**.
+
 ## Caveats
 
-- Browser checks can block access. The plugin detects
-  blocks and tries some alternatives.
+- Public search does not guarantee anonymous downloads; some libraries require an account.
 - **Test connection** refreshes the mirror list and checks catalogue searches. If
   a search fails, BookOrbit's logs show which sources were unavailable.
 

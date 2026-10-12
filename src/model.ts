@@ -30,6 +30,9 @@ const Account = Schema.Struct({
 export const Credentials = Schema.Struct({
   annas: Schema.optionalKey(Account),
   zlibrary: Schema.optionalKey(Account),
+  browserHelper: Schema.optionalKey(
+    Schema.Struct({ origin: Schema.String, token: Schema.String }),
+  ),
 });
 export type Credentials = {
   -readonly [K in keyof typeof Credentials.Type]: (typeof Credentials.Type)[K];
@@ -83,6 +86,22 @@ export function credentials(input: string | null): Credentials {
       onExcessProperty: "error",
     })(JSON.parse(input));
     const normalized: Credentials = {};
+    if (result.browserHelper) {
+      const origin = new URL(result.browserHelper.origin);
+      if (
+        !["http:", "https:"].includes(origin.protocol) ||
+        origin.username ||
+        origin.password ||
+        origin.pathname !== "/" ||
+        origin.search ||
+        origin.hash
+      )
+        throw Error("Invalid helper origin");
+      normalized.browserHelper = {
+        ...result.browserHelper,
+        origin: origin.origin,
+      };
+    }
     for (const family of ["annas", "zlibrary"] as const) {
       const account = result[family];
       if (account)
@@ -103,7 +122,7 @@ export function credentials(input: string | null): Credentials {
     return normalized;
   } catch {
     throw failure(
-      "Credential must be JSON containing annas/zlibrary accounts; origin and trustedOrigins must contain HTTPS origins.",
+      "Invalid account JSON. Library origin/trustedOrigins must be HTTPS origins; browserHelper needs an HTTP(S) origin and token.",
       "unauthorized",
     );
   }

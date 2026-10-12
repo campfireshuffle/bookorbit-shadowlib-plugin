@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import { browserHelper } from "./browser.js";
 import { discover } from "./discovery.js";
 import {
   GuidSchema,
@@ -82,6 +83,7 @@ const searchAll = Effect.fnUntraced(function* (
   cfg: PluginIndexerConfig,
   accounts: Credentials,
   mirrors: Mirror[],
+  warming = false,
 ) {
   const { host } = yield* Network;
   const { enabled } = yield* settings(cfg);
@@ -122,7 +124,7 @@ const searchAll = Effect.fnUntraced(function* (
       });
       return searchFamily.pipe(
         Effect.timeoutOrElse({
-          duration: "8 seconds",
+          duration: warming ? "24 seconds" : "8 seconds",
           orElse: () =>
             Effect.fail(
               failure(`${family}: mirror search budget expired.`, "timeout"),
@@ -203,6 +205,8 @@ const prepare = Effect.fnUntraced(function* (
   cfg: PluginIndexerConfig,
   refresh = false,
 ) {
+  const { host } = yield* Network;
+  const browser = yield* browserHelper(cfg, host);
   const accounts = yield* Effect.try({
     try: () => credentials(cfg.credential),
     catch: () => failure("Invalid encrypted credential JSON.", "unauthorized"),
@@ -223,19 +227,27 @@ const prepare = Effect.fnUntraced(function* (
       };
   }
   const mirrors = configuredMirrors(discovered, accounts);
-  return { accounts, mirrors };
+  return { accounts, mirrors, browser };
 });
 
 export const search = Effect.fnUntraced(function* (
   q: PluginReleaseQuery,
   cfg: PluginIndexerConfig,
 ) {
-  const { accounts, mirrors } = yield* prepare(cfg);
-  return yield* searchAll(q, cfg, accounts, mirrors);
+  const { host } = yield* Network;
+  const { accounts, mirrors, browser } = yield* prepare(cfg);
+  return yield* searchAll(q, cfg, accounts, mirrors).pipe(
+    Effect.provideService(Network, { host, browser }),
+  );
 });
 export const test = Effect.fnUntraced(function* (cfg: PluginIndexerConfig) {
-  const { accounts, mirrors } = yield* prepare(cfg, true);
-  const checks = yield* health(mirrors);
+  const { host } = yield* Network;
+  const { accounts, mirrors, browser } = yield* prepare(cfg, true);
+  if (browser) yield* browser.check;
+  const { enabled } = yield* settings(cfg);
+  const checks = yield* health(
+    mirrors.filter((m) => enabled.includes(m.family)),
+  );
   const releases = yield* searchAll(
     {
       title: "Pride and Prejudice",
@@ -249,6 +261,9 @@ export const test = Effect.fnUntraced(function* (cfg: PluginIndexerConfig) {
     cfg,
     accounts,
     mirrors,
+    Boolean(browser),
+  ).pipe(
+    Effect.provideService(Network, { host, browser, browserTimeoutMs: 20000 }),
   );
   if (!releases.length)
     return {
@@ -260,13 +275,13 @@ export const test = Effect.fnUntraced(function* (cfg: PluginIndexerConfig) {
   const protectedCount = checks.filter((m) => m.status === "protected").length;
   return {
     success: true,
-    indexerName: `BookOrbit ShadowLib: ${checks.length} domains checked (${up} up, ${protectedCount} protected); ${releases.length} test releases`,
+    indexerName: `BookOrbit ShadowLib: ${checks.length} domains checked (${up} up, ${protectedCount} protected); ${releases.length} test releases${browser ? "; browser helper connected" : ""}`,
   };
 });
 export const resolveFile = Effect.fnUntraced(
   function* (release: PluginReleaseCandidate, cfg: PluginIndexerConfig) {
     const { host } = yield* Network;
-    const { accounts, mirrors } = yield* prepare(cfg);
+    const { accounts, mirrors, browser } = yield* prepare(cfg);
     const value = yield* Effect.try({
       try: () => Schema.decodeUnknownSync(GuidSchema)(JSON.parse(release.guid)),
       catch: () => failure("Invalid release identifier."),
@@ -313,8 +328,9 @@ export const resolveFile = Effect.fnUntraced(
         accounts,
         ipfsOrigin,
       ).pipe(
+        Effect.provideService(Network, { host, browser }),
         Effect.timeoutOrElse({
-          duration: "3 seconds",
+          duration: browser ? "7 seconds" : "3 seconds",
           orElse: () =>
             Effect.fail(
               failure(
