@@ -1896,3 +1896,35 @@ test("API quota exhaustion does not retry other mirrors of the same library", as
     assert(!h.calls.some(({ url }) => new URL(url).origin === second));
   }
 });
+
+test("a valid empty catalogue answer survives the remaining mirror budget", async () => {
+  const config = cfg("libgen");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          libgen: [
+            "https://empty-answer.example",
+            "https://empty-followup-1.example",
+            "https://empty-followup-2.example",
+            "https://empty-followup-3.example",
+          ],
+        }),
+      );
+    if (url.hostname === "empty-answer.example")
+      return new Response("No results");
+    return new Promise<Response>(() => {});
+  });
+  const releases = await plugin.search(
+    q,
+    config,
+    h.value,
+    AbortSignal.timeout(10000),
+  );
+  assert.deepEqual(releases, []);
+  assert(
+    h.calls.some(
+      ({ url }) => new URL(url).hostname === "empty-followup-3.example",
+    ),
+  );
+});

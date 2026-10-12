@@ -84,27 +84,28 @@ const byPriority =
     };
     return rank(a) - rank(b);
   };
+type Prepared = Effect.Success<ReturnType<typeof prepare>>;
+
 const searchAll = Effect.fnUntraced(function* (
   q: PluginReleaseQuery,
   cfg: PluginIndexerConfig,
-  accounts: Credentials,
-  mirrors: Mirror[],
+  prepared: Prepared,
   warming = false,
 ) {
   const { host, browser } = yield* Network;
-  const { enabled } = yield* settings(cfg);
+  const { accounts, mirrors, enabled } = prepared;
   const outcomes = yield* Effect.forEach(
     enabled,
     (family) => {
       const candidates = mirrors
         .filter((m) => m.family === family)
         .sort(byPriority(family, accounts));
+      let answered = false;
       const searchFamily = Effect.gen(function* () {
         if (!candidates.length)
           return yield* Effect.fail(
             failure(`${family}: not present in the directory.`),
           );
-        let answered = false;
         let last: SourceError = failure(`${family}: no working catalogue.`);
         for (const mirror of candidates) {
           const result = yield* searchMirror(mirror, q, cfg, accounts).pipe(
@@ -146,9 +147,14 @@ const searchAll = Effect.fnUntraced(function* (
         Effect.timeoutOrElse({
           duration: warming ? "24 seconds" : "8 seconds",
           orElse: () =>
-            Effect.fail(
-              failure(`${family}: mirror search budget expired.`, "timeout"),
-            ),
+            answered
+              ? Effect.succeed([] as Hit[])
+              : Effect.fail(
+                  failure(
+                    `${family}: mirror search budget expired.`,
+                    "timeout",
+                  ),
+                ),
         }),
         Effect.result,
         Effect.map((outcome) => ({ family, outcome })),
@@ -234,7 +240,7 @@ const prepare = Effect.fnUntraced(function* (
   refresh = false,
 ) {
   const { host } = yield* Network;
-  yield* settings(cfg);
+  const configuration = yield* settings(cfg);
   const browser = yield* browserHelper(cfg, host);
   const accounts = yield* Effect.try({
     try: () => credentials(cfg.credential),
@@ -259,7 +265,7 @@ const prepare = Effect.fnUntraced(function* (
       };
   }
   const mirrors = configuredMirrors(discovered, accounts);
-  return { accounts, mirrors, browser };
+  return { accounts, mirrors, browser, ...configuration };
 });
 
 export const search = Effect.fnUntraced(function* (
@@ -267,16 +273,16 @@ export const search = Effect.fnUntraced(function* (
   cfg: PluginIndexerConfig,
 ) {
   const { host } = yield* Network;
-  const { accounts, mirrors, browser } = yield* prepare(cfg);
-  return yield* searchAll(q, cfg, accounts, mirrors).pipe(
-    Effect.provideService(Network, { host, browser }),
+  const prepared = yield* prepare(cfg);
+  return yield* searchAll(q, cfg, prepared).pipe(
+    Effect.provideService(Network, { host, browser: prepared.browser }),
   );
 });
 export const test = Effect.fnUntraced(function* (cfg: PluginIndexerConfig) {
   const { host } = yield* Network;
-  const { accounts, mirrors, browser } = yield* prepare(cfg, true);
+  const prepared = yield* prepare(cfg, true);
+  const { mirrors, browser, enabled } = prepared;
   if (browser) yield* browser.check;
-  const { enabled } = yield* settings(cfg);
   const checks = yield* health(
     mirrors.filter((m) => enabled.includes(m.family)),
   );
@@ -291,8 +297,7 @@ export const test = Effect.fnUntraced(function* (cfg: PluginIndexerConfig) {
       limit: 10,
     },
     cfg,
-    accounts,
-    mirrors,
+    prepared,
     Boolean(browser),
   ).pipe(
     Effect.provideService(Network, { host, browser, browserTimeoutMs: 20000 }),
@@ -313,12 +318,12 @@ export const test = Effect.fnUntraced(function* (cfg: PluginIndexerConfig) {
 export const resolveFile = Effect.fnUntraced(
   function* (release: PluginReleaseCandidate, cfg: PluginIndexerConfig) {
     const { host } = yield* Network;
-    const { accounts, mirrors, browser } = yield* prepare(cfg);
+    const { accounts, mirrors, browser, enabled, ipfsOrigin } =
+      yield* prepare(cfg);
     const value = yield* Effect.try({
       try: () => Schema.decodeUnknownSync(GuidSchema)(JSON.parse(release.guid)),
       catch: () => failure("Invalid release identifier."),
     });
-    const { enabled, ipfsOrigin } = yield* settings(cfg);
     const locations: Location[] = value.locations.filter(
       (l) =>
         enabled.includes(l.family) &&
