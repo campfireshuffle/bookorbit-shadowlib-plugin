@@ -4,7 +4,13 @@ import test from "node:test";
 import { Effect } from "effect";
 import plugin from "../src/index.js";
 import { parseDirectory } from "../src/discovery.js";
-import { mergeHits, parseMemory, type Hit } from "../src/catalogues.js";
+import {
+  downloadLink,
+  mergeHits,
+  parseHtml,
+  parseMemory,
+  type Hit,
+} from "../src/catalogues.js";
 import {
   credentials,
   type PluginHost,
@@ -1233,5 +1239,93 @@ test("helper failures explain LAN permissions without echoing host errors", asyn
       e instanceof Error &&
       e.message.includes("Allow private IP addresses") &&
       !e.message.includes("private details"),
+  );
+});
+
+test("decimal catalogue sizes are whole bytes accepted by the download database", () => {
+  const [release] = parseHtml(
+    `<z-bookcard id="123" href="/book/123/fixture" extension="epub" filesize="2.15 MB"><div slot="title">Fixture</div></z-bookcard>`,
+    { family: "zlibrary", origin: "https://zlib-size.example", status: "up" },
+  );
+  assert.equal(release.sizeBytes, 2254438);
+  assert(Number.isSafeInteger(release.sizeBytes));
+});
+
+test("file resolution ignores access info and hidden decoys before the real download", () => {
+  const html = `<a href="/access-info" download="Z-Library_access.txt">Save access info</a>
+    <template><a href="/dl/decoy-template">Download</a></template>
+    <a href="/dl/decoy-hidden" hidden>Download</a>
+    <a href="/dl/decoy-aria" aria-hidden="true">Download</a>
+    <a href="https://reader.example/read/book">Read Online</a>
+    <a href="/dl/real-file">epub, 2.15 MB</a>`;
+  assert.equal(
+    downloadLink(html, "https://zlib-files.example"),
+    "https://zlib-files.example/dl/real-file",
+  );
+  assert.equal(
+    downloadLink(
+      '<a href="/access-info" download="access.txt">Save access info</a>',
+      "https://zlib-files.example",
+    ),
+    undefined,
+  );
+});
+
+test("non-HTML sources also emit safe integer byte counts", () => {
+  const base: Hit = {
+    title: "Fixture",
+    sizeBytes: 2254438.4,
+    seeders: null,
+    leechers: null,
+    format: "epub",
+    location: {
+      family: "memory",
+      origin: "https://memory-size.example",
+      id: "one",
+    },
+  };
+  const results = mergeHits(
+    [
+      base,
+      {
+        ...base,
+        sizeBytes: Infinity,
+        location: {
+          family: "liber3",
+          origin: "https://liber-size.example",
+          id: "two",
+        },
+      },
+    ],
+    "ebook",
+    null,
+    10,
+  );
+  assert.deepEqual(
+    results.map((r) => r.sizeBytes),
+    [2254438, null],
+  );
+});
+
+test("other libraries retain direct download routes and named book attachments", () => {
+  for (const href of [
+    "get.php?md5=abc",
+    "/download/book",
+    "/files/book.epub?key=fixture",
+  ]) {
+    assert.equal(
+      downloadLink(
+        `<a href="${href}" download>Get</a>`,
+        "https://files-fixture.example",
+      ),
+      new URL(href, "https://files-fixture.example").href,
+    );
+  }
+  assert.equal(
+    downloadLink(
+      '<a href="/opaque" download="Book.m4b">Audio</a>',
+      "https://files-fixture.example",
+    ),
+    "https://files-fixture.example/opaque",
   );
 });

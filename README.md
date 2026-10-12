@@ -56,6 +56,7 @@ to the same JSON. Its origin must match **Browser helper URL**.
 ## Caveats
 
 - Public search does not guarantee anonymous downloads; some libraries require an account.
+- The browser helper loads catalogue pages. Protected file downloads may still need a browser-capable downloader.
 - **Test connection** refreshes the mirror list and checks catalogue searches. If
   a search fails, BookOrbit's logs show which sources were unavailable.
 
