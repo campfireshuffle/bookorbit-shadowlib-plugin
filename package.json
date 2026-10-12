@@ -1,12 +1,13 @@
 {
   "name": "bookorbit-shadowlib-plugin",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "BookOrbit ShadowLib indexer with Open Slum mirror discovery and encrypted credentials",
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
+    "lint": "knip",
     "test": "tsx --test test/*.test.ts",
-    "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm build && pnpm test:release",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm test:release",
     "test:release": "node --test test/release.test.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^26.6.5",
     "esbuild": "^0.28.2",
+    "knip": "^6.41.0",
     "prettier": "^3.9.10",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"

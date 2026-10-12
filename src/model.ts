@@ -5,10 +5,9 @@ export type {
   PluginIndexerConfig,
   PluginReleaseQuery,
   PluginReleaseCandidate,
-  PluginReleaseFile,
   PluginRequestInit,
 } from "../vendor/bookorbit-plugin-api.js";
-export const Family = Schema.Literals([
+export const families = [
   "annas",
   "libgen",
   "zlibrary",
@@ -16,7 +15,8 @@ export const Family = Schema.Literals([
   "memory",
   "liber3",
   "libstc",
-]);
+] as const;
+export const Family = Schema.Literals(families);
 export type Family = typeof Family.Type;
 const Account = Schema.Struct({
   origin: Schema.optionalKey(Schema.String),
