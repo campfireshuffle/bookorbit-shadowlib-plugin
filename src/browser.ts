@@ -1,7 +1,8 @@
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
+import * as Exit from "effect/Exit";
+import { withLock } from "./locks.js";
 import {
   credentials,
   failure,
@@ -26,7 +27,6 @@ const sessions = new Map<
   string,
   { id: string; endpoint: string; until: number; token?: string }
 >();
-const locks = new Map<string, Semaphore.Semaphore>();
 const instance = crypto.randomUUID();
 
 export interface BrowserHelper {
@@ -69,11 +69,6 @@ export const browserHelper = Effect.fnUntraced(function* (
             "unauthorized",
           ),
   });
-  let lock = locks.get(endpoint);
-  if (!lock) {
-    lock = Semaphore.makeUnsafe(1);
-    locks.set(endpoint, lock);
-  }
   const call = Effect.fnUntraced(function* (body: Record<string, unknown>) {
     const response = yield* Effect.tryPromise({
       try: () =>
@@ -112,76 +107,84 @@ export const browserHelper = Effect.fnUntraced(function* (
       );
     return envelope;
   });
+  const discard = Effect.fnUntraced(function* (key: string) {
+    const session = sessions.get(key);
+    sessions.delete(key);
+    if (session?.endpoint === endpoint)
+      yield* call({ cmd: "sessions.destroy", session: session.id }).pipe(
+        Effect.interruptible,
+        Effect.timeoutOrElse({
+          duration: "250 millis",
+          orElse: () => Effect.void,
+        }),
+        Effect.ignore,
+      );
+  });
   const fetchPage = Effect.fnUntraced(function* (
     url: string,
     timeoutMs: number,
   ) {
     const origin = new URL(url).origin;
     const key = `${cfg.id}:${endpoint}:${origin}`;
-    const now = yield* Clock.currentTimeMillis;
-    let session = sessions.get(key);
-    if (session && (session.until <= now || session.token !== token)) {
-      yield* call({ cmd: "sessions.destroy", session: session.id }).pipe(
-        Effect.ignore,
-      );
-      sessions.delete(key);
-      session = undefined;
-    }
-    if (!session) {
-      const owned = [...sessions].filter(([, s]) => s.endpoint === endpoint);
-      if (owned.length >= 16) {
-        const oldest = owned[0];
-        sessions.delete(oldest[0]);
-        yield* call({ cmd: "sessions.destroy", session: oldest[1].id }).pipe(
-          Effect.ignore,
-        );
+    return yield* Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      for (const [oldKey, session] of sessions)
+        if (session.until <= now) sessions.delete(oldKey);
+      let session = sessions.get(key);
+      if (session && session.token !== token) {
+        yield* discard(key);
+        session = undefined;
       }
-      const id = `shadowlib-${instance}-${cfg.id}-${crypto.randomUUID()}`;
-      const created = yield* call({ cmd: "sessions.create", session: id });
-      session = {
-        id: created.session ?? id,
-        endpoint,
-        until: now + 10 * 60 * 1000,
-        token,
-      };
-      sessions.set(key, session);
-    }
-    const sessionId = session.id;
-    const result = yield* call({
-      cmd: "request.get",
-      url,
-      session: session.id,
-      session_ttl_minutes: 10,
-      maxTimeout: timeoutMs,
-    }).pipe(
-      Effect.catch((error) =>
-        Effect.gen(function* () {
-          sessions.delete(key);
-          yield* call({ cmd: "sessions.destroy", session: sessionId }).pipe(
-            Effect.ignore,
+      if (!session) {
+        const owned = [...sessions].filter(([, s]) => s.endpoint === endpoint);
+        if (owned.length >= 16 || sessions.size >= 64)
+          yield* discard(
+            owned.length >= 16 ? owned[0][0] : sessions.keys().next().value!,
           );
-          return yield* Effect.fail(error);
-        }),
+        session = {
+          id: `shadowlib-${instance}-${cfg.id}-${crypto.randomUUID()}`,
+          endpoint,
+          until: now + 10 * 60 * 1000,
+          token,
+        };
+        sessions.set(key, session);
+        const created = yield* call({
+          cmd: "sessions.create",
+          session: session.id,
+        });
+        session.id = created.session ?? session.id;
+      }
+      const result = yield* call({
+        cmd: "request.get",
+        url,
+        session: session.id,
+        session_ttl_minutes: 10,
+        maxTimeout: timeoutMs,
+      });
+      const solution = result.solution;
+      const returnedOrigin = yield* Effect.try({
+        try: () => (solution ? new URL(solution.url).origin : undefined),
+        catch: () => failure("Browser helper returned an invalid page URL."),
+      });
+      if (!solution || solution.status !== 200 || returnedOrigin !== origin)
+        return yield* Effect.fail(
+          failure(
+            "Browser helper did not return a successful page from the requested origin.",
+          ),
+        );
+      session.until = (yield* Clock.currentTimeMillis) + 10 * 60 * 1000;
+      return new Response(solution.response, {
+        headers: { "Content-Type": "text/html" },
+      });
+    }).pipe(
+      Effect.onExit((exit) =>
+        Exit.isFailure(exit) ? discard(key) : Effect.void,
       ),
     );
-    const solution = result.solution;
-    const returnedOrigin = yield* Effect.try({
-      try: () => (solution ? new URL(solution.url).origin : undefined),
-      catch: () => failure("Browser helper returned an invalid page URL."),
-    });
-    if (!solution || solution.status !== 200 || returnedOrigin !== origin)
-      return yield* Effect.fail(
-        failure(
-          "Browser helper did not return a successful page from the requested origin.",
-        ),
-      );
-    session.until = (yield* Clock.currentTimeMillis) + 10 * 60 * 1000;
-    return new Response(solution.response, {
-      headers: { "Content-Type": "text/html" },
-    });
   });
   return {
     check: call({ cmd: "sessions.list" }).pipe(Effect.asVoid),
-    fetchPage: (url, timeoutMs) => lock.withPermit(fetchPage(url, timeoutMs)),
+    fetchPage: (url, timeoutMs) =>
+      withLock(`browser:${endpoint}`, fetchPage(url, timeoutMs)),
   } satisfies BrowserHelper;
 });

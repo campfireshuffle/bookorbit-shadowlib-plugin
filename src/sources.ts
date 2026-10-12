@@ -2,7 +2,7 @@ import { load } from "cheerio/slim";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
+import { withLock } from "./locks.js";
 import {
   AnnaDownload,
   downloadLink,
@@ -28,7 +28,7 @@ import { checkedText, json, request, text } from "./network.js";
 
 const sessions = new Map<
   string,
-  { credential: string | null; until: number; headers: Record<string, string> }
+  { credential: string; until: number; headers: Record<string, string> }
 >();
 const cacheKey = (cfg: PluginIndexerConfig, origin: string) =>
   `${cfg.id}:${origin}`;
@@ -51,9 +51,20 @@ const createSession = Effect.fnUntraced(function* (
   const account = accountForMirror(accounts, mirror);
   if (!account) return {} as Record<string, string>;
   const now = yield* Clock.currentTimeMillis;
+  for (const [key, session] of sessions)
+    if (session.until <= now) sessions.delete(key);
+  const credential = yield* Effect.tryPromise({
+    try: async () =>
+      Buffer.from(
+        await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(JSON.stringify(account)),
+        ),
+      ).toString("hex"),
+    catch: () => failure("Could not identify the configured account."),
+  });
   const cached = sessions.get(cacheKey(cfg, mirror.origin));
-  if (cached && cached.credential === cfg.credential && cached.until > now)
-    return cached.headers;
+  if (cached && cached.credential === credential) return cached.headers;
   let headers: Record<string, string>;
   if (mirror.family === "annas") {
     if (!account.key)
@@ -115,28 +126,24 @@ const createSession = Effect.fnUntraced(function* (
       Cookie: `remix_userid=${encodeURIComponent(userId)}; remix_userkey=${encodeURIComponent(userKey)}`,
     };
   }
+  if (sessions.size >= 64) sessions.delete(sessions.keys().next().value!);
   sessions.set(cacheKey(cfg, mirror.origin), {
-    credential: cfg.credential,
+    credential,
     until: now + 15 * 60 * 1000,
     headers,
   });
   return headers;
 });
 
-const sessionLocks = new Map<string, Semaphore.Semaphore>();
-const auth = Effect.fnUntraced(function* (
+const auth = (
   mirror: Mirror,
   cfg: PluginIndexerConfig,
   accounts: Credentials,
-) {
-  const key = cacheKey(cfg, mirror.origin);
-  let lock = sessionLocks.get(key);
-  if (!lock) {
-    lock = Semaphore.makeUnsafe(1);
-    sessionLocks.set(key, lock);
-  }
-  return yield* lock.withPermit(createSession(mirror, cfg, accounts));
-});
+) =>
+  withLock(
+    `auth:${cacheKey(cfg, mirror.origin)}`,
+    createSession(mirror, cfg, accounts),
+  );
 
 const authenticated = Effect.fnUntraced(function* (
   mirror: Mirror,

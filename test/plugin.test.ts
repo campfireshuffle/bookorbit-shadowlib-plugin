@@ -1613,3 +1613,117 @@ test("retry schedules stop after two retries even without caller cancellation", 
   );
   assert.equal(h.calls.length, 3);
 });
+
+test("cancelled helper requests discard sessions without waiting for stuck cleanup", async () => {
+  const { browserHelper } = await import("../src/browser.js");
+  const config = cfg();
+  config.settings = { browserHelperUrl: "https://cancel-helper.example" };
+  const controller = new AbortController();
+  let stall = true;
+  const commands: Record<string, unknown>[] = [];
+  const h = host((_, init) => {
+    const command = JSON.parse(init!.body!);
+    commands.push(command);
+    if (command.cmd === "sessions.destroy")
+      return new Promise<Response>(() => {});
+    if (command.cmd === "request.get") {
+      if (stall) {
+        setTimeout(() => controller.abort(), 5);
+        return new Promise<Response>(() => {});
+      }
+      return Response.json({
+        status: "ok",
+        solution: { status: 200, url: command.url, response: annaHtml() },
+      });
+    }
+    return Response.json({ status: "ok", session: command.session });
+  });
+  const helper = (await Effect.runPromise(browserHelper(config, h.value)))!;
+  const started = performance.now();
+  await assert.rejects(
+    Effect.runPromise(
+      helper.fetchPage("https://cancel-page.example/search", 4500),
+      { signal: controller.signal },
+    ),
+  );
+  assert(performance.now() - started < 1500);
+  stall = false;
+  await Effect.runPromise(
+    helper.fetchPage("https://cancel-page.example/search", 4500),
+    { signal: AbortSignal.timeout(2000) },
+  );
+  const creates = commands.filter(
+    (command) => command.cmd === "sessions.create",
+  );
+  assert.equal(creates.length, 2);
+  assert.notEqual(creates[0].session, creates[1].session);
+  assert(commands.some((command) => command.cmd === "sessions.destroy"));
+});
+
+test("concurrent helper callers serialize and share a single host session", async () => {
+  const { browserHelper } = await import("../src/browser.js");
+  const config = cfg();
+  config.settings = { browserHelperUrl: "https://parallel-helper.example" };
+  let active = 0;
+  let maximum = 0;
+  let creates = 0;
+  const h = host(async (_, init) => {
+    const command = JSON.parse(init!.body!);
+    if (command.cmd === "sessions.create") creates++;
+    if (command.cmd === "request.get") {
+      maximum = Math.max(maximum, ++active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active--;
+      return Response.json({
+        status: "ok",
+        solution: { status: 200, url: command.url, response: annaHtml() },
+      });
+    }
+    return Response.json({ status: "ok", session: command.session });
+  });
+  const first = (await Effect.runPromise(browserHelper(config, h.value)))!;
+  const second = (await Effect.runPromise(browserHelper(config, h.value)))!;
+  await Promise.all(
+    [first, second].map((helper) =>
+      Effect.runPromise(
+        helper.fetchPage("https://shared-page.example/search", 4500),
+      ),
+    ),
+  );
+  assert.equal(maximum, 1);
+  assert.equal(creates, 1);
+});
+
+test("authentication caches evict old sessions and recover without retaining unlimited accounts", async () => {
+  const configs = Array.from({ length: 66 }, () =>
+    cfg(
+      "zlibrary",
+      JSON.stringify({
+        zlibrary: {
+          email: "fixture@example.com",
+          password: "synthetic-password",
+        },
+      }),
+    ),
+  );
+  const logins = new Map<string, number>();
+  const h = host((url) => {
+    if (url.hostname.startsWith("directory-"))
+      return new Response(
+        directory({ zlibrary: ["https://bounded-auth.example"] }),
+      );
+    if (url.pathname === "/eapi/user/login") {
+      logins.set("count", (logins.get("count") ?? 0) + 1);
+      return Response.json({
+        success: 1,
+        user: { id: 42, remix_userkey: "synthetic-session-key" },
+      });
+    }
+    return Response.json({ success: 1, books: [] });
+  });
+  for (const config of configs)
+    await plugin.search(q, config, h.value, new AbortController().signal);
+  const before = logins.get("count")!;
+  await plugin.search(q, configs[0], h.value, new AbortController().signal);
+  assert.equal(logins.get("count"), before + 1);
+});

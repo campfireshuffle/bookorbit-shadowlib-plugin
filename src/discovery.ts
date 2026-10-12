@@ -55,6 +55,8 @@ export const discover = Effect.fnUntraced(function* (
 ) {
   const origin = httpsOrigin(directoryOrigin);
   const now = yield* Clock.currentTimeMillis;
+  for (const [key, entry] of cache)
+    if (now - entry.at >= 24 * 60 * 60 * 1000) cache.delete(key);
   const cached = cache.get(origin);
   if (!refresh && cached && now - cached.at < 60 * 60 * 1000)
     return cached.mirrors;
@@ -65,6 +67,8 @@ export const discover = Effect.fnUntraced(function* (
       catch: () =>
         failure("Could not parse Open Slum's book-library directory."),
     });
+    if (!cache.has(origin) && cache.size >= 16)
+      cache.delete(cache.keys().next().value!);
     cache.set(origin, { at: now, mirrors });
     return mirrors;
   });

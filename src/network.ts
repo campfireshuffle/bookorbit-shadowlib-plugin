@@ -52,6 +52,8 @@ export const request = Effect.fnUntraced(function* (
       destination.searchParams.has("key"));
   const blockedKey = `${origin}:${authenticated ? "authenticated" : "public"}`;
   const now = yield* Clock.currentTimeMillis;
+  for (const [key, entry] of cooldowns)
+    if (entry.until <= now) cooldowns.delete(key);
   const cooldown = [cooldowns.get(origin), cooldowns.get(blockedKey)].find(
     (entry) => entry && entry.until > now,
   );
