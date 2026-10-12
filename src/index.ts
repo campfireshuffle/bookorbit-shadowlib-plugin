@@ -1,4 +1,7 @@
-import { Cause, Effect, Exit, Schema } from "effect";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Schema from "effect/Schema";
 import { discover } from "./discovery.js";
 import { GuidSchema, mergeHits, type Hit, type Location } from "./catalogues.js";
 import { credentials, failure, Family, httpsOrigin, SourceError, stringSetting, type Credentials, type IndexerPlugin, type Mirror, type PluginHost, type PluginIndexerConfig, type PluginReleaseCandidate, type PluginReleaseQuery } from "./model.js";
@@ -95,7 +98,7 @@ const prepare = Effect.fnUntraced(function*(cfg: PluginIndexerConfig, refresh = 
 
 export default {
   apiVersion: 1,
-  version: "0.1.1",
+  version: "0.1.2",
   type: "bookorbit-shadowlib-plugin",
   label: "BookOrbit ShadowLib",
   requiresCredential: false,

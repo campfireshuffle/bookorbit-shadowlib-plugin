@@ -1,5 +1,8 @@
 import { load } from "cheerio/slim";
-import { Clock, Effect, Schema, Semaphore } from "effect";
+import * as Clock from "effect/Clock";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import { AnnaDownload, downloadLink, LiberResponse, parseHtml, parseMemory, ZDownload, ZLogin, ZSearch, type Hit, type Location } from "./catalogues.js";
 import { failure, httpsOrigin, type Credentials, type Mirror, type PluginIndexerConfig, type PluginReleaseQuery } from "./model.js";
 import { checkedText, json, request, text } from "./network.js";

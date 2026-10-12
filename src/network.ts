@@ -1,4 +1,7 @@
-import { Clock, Context, Effect, Schedule } from "effect";
+import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Schedule from "effect/Schedule";
 import { failure, type PluginHost, type PluginRequestInit, SourceError } from "./model.js";
 
 export class Network extends Context.Service<Network, { host: PluginHost }>()("bookorbit-shadowlib-plugin/Network") {}

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 export type { IndexerPlugin, PluginHost, PluginIndexerConfig, PluginReleaseQuery, PluginReleaseCandidate, PluginReleaseFile, PluginRequestInit } from "../vendor/bookorbit-plugin-api.js";
 export const Family = Schema.Literals(["annas", "libgen", "zlibrary", "welib", "memory", "liber3", "libstc"]);
 export type Family = typeof Family.Type;

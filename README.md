@@ -122,7 +122,10 @@ downloaded, real credentials submitted, or production plugin installed.
 ## Development
 
 `pnpm check` runs strict TypeScript checking, deterministic fixture tests, and
-the single-file ESM build. Effect supplies typed failures, retry schedules,
+the single-file ESM build. The bundle is minified to fit BookOrbit's 512 KiB upload
+limit; readable source remains in `src/`. The build fails if it exceeds that limit
+or fails an isolated import using BookOrbit's five-second inspection deadline,
+64 KiB output cap, and stripped environment. Effect supplies typed failures, retry schedules,
 timeouts, interruptible execution, concurrency control, and session semaphores.
 Cheerio parses HTML without executing it. The runtime has no external npm imports.
 

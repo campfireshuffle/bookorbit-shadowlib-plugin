@@ -1,5 +1,5 @@
 import { load } from "cheerio/slim";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { Family, failure, type Mirror, type PluginReleaseCandidate } from "./model.js";
 
 export const LocationSchema = Schema.Struct({ family: Family, origin: Schema.String, id: Schema.String, page: Schema.optionalKey(Schema.String), url: Schema.optionalKey(Schema.String) });

@@ -1,5 +1,7 @@
 import { load } from "cheerio/slim";
-import { Clock, Effect, Schema } from "effect";
+import * as Clock from "effect/Clock";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { failure, httpsOrigin, MirrorSchema, type Mirror } from "./model.js";
 import { checkedText, Network, request } from "./network.js";
 
