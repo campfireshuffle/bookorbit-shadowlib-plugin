@@ -509,6 +509,10 @@ test("Z-Library credentials use the encrypted field and file resolution uses its
       },
     }),
   );
+  config.settings = {
+    ...config.settings,
+    browserHelperUrl: "https://api-must-stay-direct.example",
+  };
   const h = host((url, init) => {
     if (url.origin === config.baseUrl)
       return new Response(
@@ -1726,4 +1730,169 @@ test("authentication caches evict old sessions and recover without retaining unl
   const before = logins.get("count")!;
   await plugin.search(q, configs[0], h.value, new AbortController().signal);
   assert.equal(logins.get("count"), before + 1);
+});
+
+test("paid Anna searches use the configured helper first while downloads use the API directly", async () => {
+  const key = "synthetic-paid-key";
+  const config = cfg("annas", JSON.stringify({ annas: { key } }));
+  config.settings = {
+    ...config.settings,
+    browserHelperUrl: "https://first-helper.example",
+  };
+  const h = host((url, init) => {
+    if (url.origin === config.baseUrl)
+      return new Response(directory({ annas: ["https://paid-first.example"] }));
+    if (url.hostname === "first-helper.example") {
+      assert(!JSON.stringify(init).includes(key));
+      const command = JSON.parse(init!.body!);
+      return Response.json({
+        status: "ok",
+        session: command.session,
+        ...(command.cmd === "request.get"
+          ? {
+              solution: { status: 200, url: command.url, response: annaHtml() },
+            }
+          : {}),
+      });
+    }
+    assert.equal(url.pathname, "/dyn/api/fast_download.json");
+    assert.equal(url.searchParams.get("key"), key);
+    return Response.json({ download_url: "https://files.example/paid.epub" });
+  });
+  const [release] = await plugin.search(
+    q,
+    config,
+    h.value,
+    new AbortController().signal,
+  );
+  assert(
+    !h.calls.some(({ url }) => new URL(url).hostname === "paid-first.example"),
+  );
+  const file = await plugin.resolveFile(
+    release,
+    config,
+    h.value,
+    new AbortController().signal,
+  );
+  assert.equal(file.url, "https://files.example/paid.epub");
+});
+
+test("malformed catalogue links and Liber3 entrypoints do not discard a healthy library", async () => {
+  const config = cfg("annas,libgen,liber3");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          annas: ["https://bad-catalogue.example"],
+          libgen: ["https://healthy-catalogue.example"],
+          other: ["https://liber3-bad.example"],
+        }),
+      );
+    if (url.hostname === "liber3-bad.example")
+      return new Response('<script type="module" src="https://["></script>');
+    if (url.hostname === "bad-catalogue.example")
+      return new Response(annaHtml().replace("/md5/", "https://[/md5/"));
+    return new Response(libgenHtml());
+  });
+  const results = await plugin.search(
+    q,
+    config,
+    h.value,
+    new AbortController().signal,
+  );
+  assert.equal(results.length, 1);
+  assert.equal(JSON.parse(results[0].guid).locations[0].family, "libgen");
+});
+
+test("malformed Memory file locations fail locally and allow a verified alternative", async () => {
+  const config = cfg("memory");
+  const h = host(
+    () =>
+      new Response(
+        directory({ other: ["https://library.memoryoftheworld.example"] }),
+      ),
+  );
+  const [release] = mergeHits(
+    parseMemory(memoryBody(), {
+      family: "memory",
+      origin: "https://library.memoryoftheworld.example",
+      status: "up",
+    }),
+    "ebook",
+    "en",
+    1,
+  );
+  const guid = JSON.parse(release.guid);
+  guid.locations.unshift({
+    ...guid.locations[0],
+    id: "malformed",
+    url: "https://[",
+  });
+  release.guid = JSON.stringify(guid);
+  assert.match(
+    (
+      await plugin.resolveFile(
+        release,
+        config,
+        h.value,
+        new AbortController().signal,
+      )
+    ).url,
+    /\/files\//,
+  );
+  assert.equal(h.calls.length, 1);
+});
+
+test("API quota exhaustion does not retry other mirrors of the same library", async () => {
+  for (const family of ["annas", "zlibrary"] as const) {
+    const config = cfg(
+      family,
+      JSON.stringify(
+        family === "annas"
+          ? { annas: { key: "synthetic-quota-key" } }
+          : { zlibrary: { userId: "42", userKey: "synthetic-session-key" } },
+      ),
+    );
+    const first = `https://${family}-quota.example`;
+    const second = `https://${family}-other.example`;
+    const h = host((url) =>
+      url.origin === config.baseUrl
+        ? new Response(directory({ [family]: [first, second] }))
+        : Response.json({ success: 0, error: "quota_exceeded" }),
+    );
+    const [release] = mergeHits(
+      [
+        {
+          title: q.title,
+          format: "epub",
+          sizeBytes: null,
+          seeders: null,
+          leechers: null,
+          location: {
+            family,
+            origin: first,
+            id: family === "annas" ? "a".repeat(32) : "42",
+            page: "/book/42/abc",
+          },
+        },
+      ],
+      "ebook",
+      "en",
+      1,
+    );
+    await assert.rejects(
+      plugin.resolveFile(
+        release,
+        config,
+        h.value,
+        new AbortController().signal,
+      ),
+      (error: Error & { kind?: string }) => {
+        assert.equal(error.kind, "throttled");
+        assert.match(error.message, /quota is exhausted/);
+        return true;
+      },
+    );
+    assert(!h.calls.some(({ url }) => new URL(url).origin === second));
+  }
 });

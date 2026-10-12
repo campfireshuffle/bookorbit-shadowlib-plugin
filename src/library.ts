@@ -16,6 +16,7 @@ import {
   failure,
   Family,
   httpsOrigin,
+  httpsUrl,
   SourceError,
   stringSetting,
   type Credentials,
@@ -340,7 +341,9 @@ export const resolveFile = Effect.fnUntraced(
       }
     }
     let last = failure("No authorized source remains for this release.");
+    const throttled = new Set<string>();
     for (const location of locations) {
+      if (throttled.has(location.family)) continue;
       const result = yield* resolveLocation(
         location,
         cfg,
@@ -362,15 +365,13 @@ export const resolveFile = Effect.fnUntraced(
       );
       if (Result.isFailure(result)) {
         last = result.failure;
+        if (last.kind === "throttled") throttled.add(location.family);
         host.logger.warn(`${location.family}: ${last.message}`);
         continue;
       }
       const destination = yield* Effect.try({
         try: () => {
-          const url = new URL(result.success);
-          if (url.protocol !== "https:" || url.username || url.password)
-            throw Error("Unsafe URL");
-          return url;
+          return httpsUrl(result.success);
         },
         catch: () =>
           failure("Source returned an invalid or unsafe download URL."),

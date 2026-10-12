@@ -42,8 +42,8 @@ If website searches are blocked, enter your existing stock **TRAWL**, **Byparr**
 or **FlareSolverr** URL in **Browser helper URL**. A base URL or `/v1` works.
 For a LAN helper, enable **Allow private IP addresses**. Save and run **Test connection**, then retry your search.
 
-The helper is optional and handles public pages; library credentials are never
-sent to it. API requests stay direct. Some browser checks may still fail.
+When configured, the helper loads public website pages first; otherwise the plugin
+fetches them directly. Library credentials are never sent to it. API requests stay direct. Some browser checks may still fail.
 A successful search or connection test does not guarantee a download will work.
 
 <details>

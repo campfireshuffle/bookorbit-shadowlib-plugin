@@ -19,12 +19,13 @@ import {
   failure,
   accountForMirror,
   httpsOrigin,
+  httpsUrl,
   type Credentials,
   type Mirror,
   type PluginIndexerConfig,
   type PluginReleaseQuery,
 } from "./model.js";
-import { checkedText, json, request, text } from "./network.js";
+import { checkedText, json, request, text, page, Network } from "./network.js";
 
 const sessions = new Map<
   string,
@@ -156,7 +157,10 @@ const authenticated = Effect.fnUntraced(function* (
     headers?: Record<string, string>;
   } = {},
 ) {
-  const url = new URL(path, mirror.origin);
+  const url = yield* Effect.try({
+    try: () => httpsUrl(path, mirror.origin),
+    catch: () => failure("Invalid source URL."),
+  });
   if (url.origin !== mirror.origin)
     return yield* Effect.fail(
       failure("Refusing to send credentials outside their configured origin."),
@@ -257,8 +261,11 @@ export const searchMirror = Effect.fnUntraced(function* (
     mirror.family === "annas"
       ? `/search?${new URLSearchParams({ q: term, ...(q.language ? { lang: q.language } : {}), ...(q.mediaKind === "audiobook" ? { content: "audiobook" } : {}) })}`
       : `/index.php?${new URLSearchParams({ req: term, res: "50" })}`;
+  const { browser } = yield* Network;
   const html = yield* checkedText(
-    yield* authenticated(mirror, cfg, accounts, path),
+    browser
+      ? yield* page(mirror.origin + path)
+      : yield* authenticated(mirror, cfg, accounts, path),
   );
   return yield* Effect.try({
     try: () => parseHtml(html, mirror),
@@ -270,14 +277,17 @@ const searchLiber = Effect.fnUntraced(function* (
   mirror: Mirror,
   q: PluginReleaseQuery,
 ) {
-  const html = yield* checkedText(yield* request(mirror.origin));
+  const html = yield* checkedText(yield* page(mirror.origin));
   const $ = load(html);
   const scriptPath = $('script[type="module"][src]').first().attr("src");
   if (!scriptPath)
     return yield* Effect.fail(
       failure("Liber3 did not publish its catalogue entrypoint."),
     );
-  const scriptUrl = new URL(scriptPath, mirror.origin);
+  const scriptUrl = yield* Effect.try({
+    try: () => httpsUrl(scriptPath, mirror.origin),
+    catch: () => failure("Invalid Liber3 entrypoint URL."),
+  });
   if (scriptUrl.origin !== mirror.origin)
     return yield* Effect.fail(
       failure("Liber3 entrypoint has an unexpected origin."),
@@ -290,7 +300,10 @@ const searchLiber = Effect.fnUntraced(function* (
     return yield* Effect.fail(
       failure("Liber3 catalogue gateway not recognized."),
     );
-  const origin = httpsOrigin(gateway);
+  const origin = yield* Effect.try({
+    try: () => httpsOrigin(gateway),
+    catch: () => failure("Invalid Liber3 gateway origin."),
+  });
   // Only read queries; escape query syntax before it enters the gateway's documented SQL endpoint.
   const term = q.title.replace(/[^\p{L}\p{N}\s]/gu, " ").trim();
   if (!term) return [] as Hit[];
@@ -348,7 +361,10 @@ export const resolveLocation = Effect.fnUntraced(function* (
     status: "unknown",
   };
   if (location.family === "memory" && location.url) {
-    const url = new URL(location.url);
+    const url = yield* Effect.try({
+      try: () => httpsUrl(location.url!),
+      catch: () => failure("Invalid Memory of the World file URL."),
+    });
     if (url.origin !== mirror.origin || !url.pathname.startsWith("/files/"))
       return yield* Effect.fail(
         failure("Invalid Memory of the World file URL."),
@@ -381,6 +397,13 @@ export const resolveLocation = Effect.fnUntraced(function* (
       yield* json(yield* request(url.href)),
     );
     if (result.download_url) return result.download_url;
+    if (/quota|download.?limit|daily.?limit/i.test(result.error ?? ""))
+      return yield* Effect.fail(
+        failure(
+          "Anna’s Archive download quota is exhausted. Check your membership allowance.",
+          "throttled",
+        ),
+      );
     if (/invalid.*key/i.test(result.error ?? ""))
       return yield* Effect.fail(
         failure("Anna's rejected the account key.", "unauthorized"),
@@ -410,17 +433,32 @@ export const resolveLocation = Effect.fnUntraced(function* (
     const result = yield* decode(ZDownload, yield* json(response));
     if (result.success && result.file?.downloadLink)
       return result.file.downloadLink;
+    if (
+      /quota|download.?limit|daily.?limit|too many downloads/i.test(
+        result.error ?? "",
+      )
+    )
+      return yield* Effect.fail(
+        failure(
+          "Z-Library download quota is exhausted. Check your account allowance.",
+          "throttled",
+        ),
+      );
     return yield* Effect.fail(
       failure("Z-Library did not return a download URL."),
     );
   }
-  const page =
+  const path =
     location.family === "libgen" && /^[a-f0-9]{32}$/.test(location.id)
       ? `/ads.php?md5=${location.id}`
       : (location.page ?? `/md5/${location.id}`);
-  const html = yield* checkedText(
-    yield* authenticated(mirror, cfg, accounts, page),
-  );
+  const url = yield* Effect.try({
+    try: () => httpsUrl(path, mirror.origin),
+    catch: () => failure("Invalid download page URL."),
+  });
+  if (url.origin !== mirror.origin)
+    return yield* Effect.fail(failure("Invalid download page origin."));
+  const html = yield* checkedText(yield* page(url.href));
   const link = yield* Effect.try({
     try: () => downloadLink(html, mirror.origin),
     catch: () => failure("Invalid download link."),

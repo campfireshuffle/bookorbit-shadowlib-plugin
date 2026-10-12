@@ -83,16 +83,19 @@ export const failure = (
   retryable = false,
   retryAfterMs = 0,
 ) => new SourceError({ message, kind, retryable, retryAfterMs });
+export function httpsUrl(input: string, base?: string): URL {
+  try {
+    const url = new URL(input, base);
+    if (url.protocol !== "https:" || url.username || url.password)
+      throw Error("Unsafe URL");
+    return url;
+  } catch {
+    throw failure("Use a valid HTTPS URL without user information.");
+  }
+}
 export function httpsOrigin(input: string): string {
-  const url = new URL(input);
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.pathname !== "/" ||
-    url.search ||
-    url.hash
-  )
+  const url = httpsUrl(input);
+  if (url.pathname !== "/" || url.search || url.hash)
     throw failure(
       "Use an HTTPS origin without a path, query, or user information.",
     );
