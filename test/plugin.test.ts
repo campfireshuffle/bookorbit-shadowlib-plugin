@@ -96,30 +96,24 @@ function host(
   return { value, calls, logs };
 }
 
-test("live Open Slum fixture discovers books, excluding Sci-Hub and the software archive", () => {
+test("live Open Slum fixture discovers API-capable libraries, excluding HTML-only sources", () => {
   const result = parseDirectory(
     readFileSync(new URL("fixtures/open-slum.html", import.meta.url), "utf8"),
   );
-  assert.equal(result.length, 20);
+  assert.equal(result.length, 18);
   assert(
     !result.some(
       (m) =>
         m.origin.includes("sci-hub") ||
         m.origin.includes("sci-net") ||
-        m.origin.includes("software."),
+        m.origin.includes("software.") ||
+        m.origin.includes("welib") ||
+        m.origin.includes("libstc"),
     ),
   );
   assert.deepEqual(
     new Set(result.map((m) => m.family)),
-    new Set([
-      "annas",
-      "libgen",
-      "zlibrary",
-      "welib",
-      "memory",
-      "liber3",
-      "libstc",
-    ]),
+    new Set(["annas", "libgen", "zlibrary", "memory", "liber3"]),
   );
 });
 test("credential JSON must bind secrets to an HTTPS origin and does not echo malformed secrets", () => {
@@ -1327,5 +1321,29 @@ test("other libraries retain direct download routes and named book attachments",
       "https://files-fixture.example",
     ),
     "https://files-fixture.example/opaque",
+  );
+});
+
+test("old selections skip removed sources without contacting them", async () => {
+  const config = cfg("annas,welib,libstc");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          annas: ["https://migration-anna.example"],
+          other: ["https://welib.example", "https://libstc.example"],
+        }),
+      );
+    assert.equal(url.origin, "https://migration-anna.example");
+    return new Response(annaHtml());
+  });
+  assert.equal(
+    (await plugin.search(q, config, h.value, AbortSignal.timeout(3000))).length,
+    1,
+  );
+  config.settings = { libraries: "welib,libstc" };
+  await assert.rejects(
+    plugin.search(q, config, h.value, AbortSignal.timeout(3000)),
+    /Invalid library settings/,
   );
 });

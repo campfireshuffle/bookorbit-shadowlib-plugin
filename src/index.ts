@@ -66,7 +66,7 @@ export default {
       minItems: 1,
       label: "Libraries to search",
       default: families.join(","),
-      hint: "Search every selected catalogue, using working mirrors within each. Sci-Hub and software archives are excluded.",
+      hint: "Search every selected catalogue, using working mirrors within each. Only libraries with API endpoints are included; some still need HTML search.",
     },
     {
       key: "ipfsOrigin",

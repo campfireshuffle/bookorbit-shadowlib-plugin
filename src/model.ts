@@ -11,10 +11,8 @@ export const families = [
   "annas",
   "libgen",
   "zlibrary",
-  "welib",
   "memory",
   "liber3",
-  "libstc",
 ] as const;
 export const Family = Schema.Literals(families);
 export type Family = typeof Family.Type;

@@ -1,7 +1,8 @@
 # BookOrbit ShadowLib plugin
 
-This BookOrbit plugin searches and dedupes results from the book and audiobook libraries listed on
-[Open Slum](https://open-slum.org/).
+Search and dedupe books and audiobooks from Anna’s Archive, Z-Library, LibGen,
+Memory of the World, and Liber3. Mirrors are discovered through
+[Open Slum](https://open-slum.org/). Only libraries with API endpoints are included.
 
 ## Install
 
@@ -10,7 +11,10 @@ This BookOrbit plugin searches and dedupes results from the book and audiobook l
    upload it.
 3. Add **BookOrbit ShadowLib** as a source. Keep the base URL as
    `https://open-slum.org` and choose the libraries to search.
-4. Leave **API key** empty to use public access, then click **Test connection**.
+4. Add account JSON below if needed, then click **Test connection**.
+
+Existing selections automatically skip the removed Welib and LibSTC sources. If
+you selected only those sources, choose a supported library before searching.
 
 ## Updates
 
@@ -27,31 +31,67 @@ then search again. Leave the URL empty if you do not use a helper.
 The helper handles public pages and keeps separate sessions per host. Library
 passwords and keys are never sent to it. Some challenges still need manual help.
 
-## Optional accounts
+## Account JSON
 
-Enter JSON in the source's **API key** field. BookOrbit encrypts this field (you must have
-`BOOK_REQUEST_ENCRYPTION_KEY` configured). Include only the accounts you use:
+Paste JSON into the source’s **API key** field. BookOrbit encrypts it; your server
+must have `BOOK_REQUEST_ENCRYPTION_KEY` configured. Include only accounts you use.
+
+| Library                        | Credentials                                                     | API coverage                                                                                            |
+| ------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Z-Library (`zlibrary`)         | Free account: `email` and `password`, or `userId` and `userKey` | Account search and download URLs; daily account limits apply.                                           |
+| Anna’s Archive (`annas`)       | Paid membership: `key` from your account                        | Fast download URLs. Search still uses the website. [API details](https://annas-archive.gl/faq#api).     |
+| LibGen (`libgen`)              | None; leave out of account JSON                                 | Some mirrors expose JSON metadata lookup. This plugin currently uses website search and download links. |
+| Memory of the World (`memory`) | None; leave out of account JSON                                 | Public JSON search and file links.                                                                      |
+| Liber3 (`liber3`)              | None; leave out of account JSON                                 | Public catalogue gateway and IPFS file links.                                                           |
+
+For Z-Library and Anna’s Archive together:
 
 ```json
 {
-  "annas": {
-    "key": "YOUR-ANNA-ACCOUNT-KEY"
-  },
   "zlibrary": {
     "email": "YOUR-EMAIL",
     "password": "YOUR-PASSWORD"
+  },
+  "annas": {
+    "key": "YOUR-MEMBERSHIP-KEY"
   }
 }
 ```
 
+If you already have Z-Library session credentials, replace its account entry with:
+
+```json
+{
+  "zlibrary": {
+    "userId": "YOUR-USER-ID",
+    "userKey": "YOUR-USER-KEY"
+  }
+}
+```
+
+For LibGen, Memory of the World, and Liber3, leave **API key** empty or use `{}`.
+Select them in **Libraries to search**; do not add empty account entries for them.
+Liber3’s **IPFS gateway** setting accepts an HTTPS origin and needs no API key.
+
 By default, accounts are shared with Open Slum mirrors for the same library,
 with separate sessions per host. Add `"trustedOrigins": ["https://YOUR-TRUSTED-HOST"]`
-to an account to restrict credential sharing; `[]` disables credential use.
+inside either account to restrict credential sharing; `[]` disables credential use.
 Existing `origin` configs stay pinned; remove `origin` to use discovered mirrors.
 
-If your helper requires a bearer token, add
-`"browserHelper": {"origin": "https://YOUR-HELPER", "token": "YOUR-TOKEN"}`
-to the same JSON. Its origin must match **Browser helper URL**.
+If your optional browser helper requires a bearer token, include this alongside
+library accounts in the same encrypted JSON:
+
+```json
+{
+  "browserHelper": {
+    "origin": "https://YOUR-HELPER",
+    "token": "YOUR-TOKEN"
+  }
+}
+```
+
+Its origin must match **Browser helper URL**. Library credentials are never sent
+to the helper. A paid library account does not require a paid browser helper.
 
 ## Caveats
 

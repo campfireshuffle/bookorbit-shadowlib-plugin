@@ -37,7 +37,9 @@ const settings = (cfg: PluginIndexerConfig) =>
       )
         .split(",")
         .map((s) => s.trim())
-        .filter(Boolean);
+        .filter((family) => family && !["welib", "libstc"].includes(family));
+      if (!enabled.length)
+        throw failure("Select at least one supported library.");
       return {
         enabled: Schema.decodeUnknownSync(Schema.Array(Family))(enabled),
         ipfsOrigin: httpsOrigin(

@@ -244,9 +244,7 @@ export const searchMirror = Effect.fnUntraced(function* (
       ? `/search?${new URLSearchParams({ q: term, ...(q.language ? { lang: q.language } : {}), ...(q.mediaKind === "audiobook" ? { content: "audiobook" } : {}) })}`
       : mirror.family === "libgen"
         ? `/index.php?${new URLSearchParams({ req: term, res: "50" })}`
-        : mirror.family === "zlibrary"
-          ? `/s/${encodeURIComponent(term)}`
-          : `/search?${new URLSearchParams({ q: term })}`;
+        : `/s/${encodeURIComponent(term)}`;
   const html = yield* checkedText(
     yield* authenticated(mirror, cfg, accounts, path),
   );

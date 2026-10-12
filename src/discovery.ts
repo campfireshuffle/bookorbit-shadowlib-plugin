@@ -26,11 +26,7 @@ export function parseDirectory(html: string): Mirror[] {
               ? "memory"
               : hostname.includes("liber3")
                 ? "liber3"
-                : hostname.includes("libstc")
-                  ? "libstc"
-                  : hostname.includes("welib")
-                    ? "welib"
-                    : null;
+                : null;
           if (!family) return;
           const mirror = Schema.decodeUnknownSync(MirrorSchema)({
             family,
