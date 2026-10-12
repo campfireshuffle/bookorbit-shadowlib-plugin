@@ -1,27 +1,38 @@
 # BookOrbit ShadowLib plugin
 
-A private BookOrbit indexer built with TypeScript and Effect 4. It discovers
-book-library domains from [Open Slum](https://open-slum.org/) and bundles into
-one `dist/index.mjs` file for BookOrbit's plugin API v1 (checked against 3.3.0).
+Search multiple book libraries from BookOrbit and download available files
+directly into your library. ShadowLib discovers mirrors from
+[Open Slum](https://open-slum.org/), retries temporary failures, and tries another
+mirror when a source is unavailable.
+
+It searches Anna's Archive, LibGen, Z-Library, Memory of the World, Liber3, WeLib,
+and LibSTC. Results from different libraries are combined, with duplicates
+removed while keeping different formats and editions.
 
 ## Install
 
-```sh
-pnpm install
-pnpm check
-```
+1. Download `index.mjs` from the [latest release](https://github.com/sarimabbas/bookorbit-shadowlib-plugin/releases/latest).
+2. In BookOrbit, open **Settings → Server → Requests → Install a plugin** and
+   upload it.
+3. Add **BookOrbit ShadowLib** as a source. Keep the base URL as
+   `https://open-slum.org` and choose the libraries to search.
+4. Leave **API key** empty to use public access, then click **Test connection**.
 
-In BookOrbit, open **Settings → Server → Requests → Install a plugin** and upload
-`dist/index.mjs`. Add **BookOrbit ShadowLib** as a source. Leave the base URL as
-`https://open-slum.org`; select the libraries you want searched. Disable the old
-Anna's-only source to avoid duplicate searches and additional sign-ins.
+Disable any separate Anna's-only source to avoid duplicate searches and sign-ins.
+No torrent or Usenet download client is required.
 
-For authenticated sources, put the following JSON in the source's **API key**
-field. This is BookOrbit's encrypted credential field, not a plugin setting.
-`BOOK_REQUEST_ENCRYPTION_KEY` must be configured on the server. Remove any account
-you do not use; the field can be left empty for public sources. No account is
-required to enable the plugin. Account-only features, including Anna's member
-fast-download API, remain subject to the source's own access requirements.
+## Updates
+
+After installing this version, use **Check for updates** in BookOrbit. Enable
+**Install signed updates automatically** if you want updates applied for you.
+BookOrbit verifies each update’s hash and signature against the key pinned in
+your installed copy.
+
+## Optional accounts
+
+For Anna's member downloads or authenticated Z-Library access, enter JSON in the
+source's **API key** field. BookOrbit encrypts this field; its server must have
+`BOOK_REQUEST_ENCRYPTION_KEY` configured. Include only the accounts you use:
 
 ```json
 {
@@ -37,106 +48,49 @@ fast-download API, remain subject to the source's own access requirements.
 }
 ```
 
-Z-Library also accepts `userId` and `userKey` instead of email/password. Use your
-own verified HTTPS origins. A newly discovered domain never receives another
-host's key, password, or session cookie. Credentials are never placed in release
-IDs, settings, or plugin logs. Anna's fast-download API itself requires the key
-in its query string; destination/proxy URL logs may retain it.
+Replace each `origin` with the HTTPS address you trust for that account. The
+plugin sends credentials only to that address; discovering a new mirror does
+not give it access to your credentials. Z-Library also accepts `userId` and
+`userKey` instead of email and password.
 
-Click **Test connection** to refresh the directory immediately, probe every
-book-related domain, and perform a real catalogue search. Domain reachability and
-search results are reported separately in BookOrbit's logs. A successful test
-requires actual test releases; a website returning HTTP 200 is not sufficient.
+Anna's download API requires the account key in the request URL, so server or
+proxy URL logs may retain it.
 
-No torrent/Usenet client is required for these direct-file sources. Automatic
-fulfilment still uses BookOrbit's normal Requests automation and Book Dock.
-This plugin does not monitor bestseller lists.
+## What to expect
 
-## Search and fallback
+- Browser checks can block access even from a residential IP. The plugin detects
+  blocks and tries alternatives; it does not solve interactive challenges.
+- WeLib and LibSTC support is experimental. Source availability and search
+  results depend on each library.
+- Ebooks and individually indexed audiobook files are supported. Audiobooks
+  packaged as archives may not be recognized.
+- Sci-Hub and Anna's software archive are excluded.
+- Automatic downloads use BookOrbit's Requests automation and Book Dock. The
+  plugin does not follow bestseller lists.
 
-- Search every selected library type, with up to four families active at once.
-  Within each family, try the credential's pinned origin first, then available
-  mirrors. Move to the next mirror on a failure or an empty result.
-- Refresh Open Slum on demand, caching the result for one hour. If refresh fails,
-  use the last successful directory for at most 24 hours, with an explicit log
-  message. Caches are in memory and reset when BookOrbit restarts.
-- Retry network failures, HTTP 408/429 and 5xx at most twice, with exponential
-  backoff. Respect `Retry-After`; delays above two seconds trigger fallback and,
-  for 429, an origin cooldown instead of holding the search open. Each library
-  has an eight-second search budget. Cancellation interrupts retries and queued
-  work; BookOrbit controls in-flight HTTP request cancellation through `host.fetch`.
-- Cache authenticated sessions for 15 minutes. An Effect semaphore prevents
-  simultaneous calls from signing in repeatedly. Refresh once on HTTP 401 or a
-  redirect to login. Credential changes invalidate cached sessions.
-- Detect Cloudflare's `cf-mitigated: challenge` header and recognizable blocking
-  pages, including challenges returned with HTTP 200 or 503. Skip challenge
-  retries, pause that origin for five minutes, and search other mirrors/libraries.
-  Plain HTTP 403 responses receive the same cooldown. Ordinary Cloudflare
-  JavaScript-detection scripts are not treated as blocking pages.
-  Anonymous and authenticated access have separate challenge cooldowns, so a
-  blocked public-page probe does not prevent a valid member account from working.
-  HTTP 429 cooldowns apply to the whole origin regardless of credentials.
-- Interleave library results before limiting, so a larger catalogue cannot drown
-  out a smaller one. Deduplicate published full-file MD5/SHA-256, exact normalized
-  URLs, and stable provider IDs. Preserve formats and editions; titles alone are
-  not deduplication keys. Up to five source locations are retained in a release
-  identifier. Hashes are source claims, not locally verified integrity checks.
-- Resolve each retained location in turn. For a known MD5, also try discovered
-  LibGen mirrors. A 502 from Anna's is eligible for retry and fallback during
-  both search and file resolution. Download resolution remains bounded by
-  BookOrbit's supplied cancellation signal and per-request deadlines.
-
-All network calls go through BookOrbit's `host.fetch`, retaining its private-IP
-policy, response-size limits, and deadlines. The plugin does not execute remote
-JavaScript, run browser challenge solvers, spawn processes, or read local files.
-It has no background timers, telemetry, or automatic update channel. Rebuild and
-upload manually to update this private plugin.
-
-A residential IP does not guarantee challenge-free access: these checks can
-require browser JavaScript, cookies, and client signals. The plugin handles
-blocked sources by reporting and falling back; it does not solve interactive
-challenges. See [Cloudflare's browser requirements](https://developers.cloudflare.com/cloudflare-challenges/reference/supported-browsers/)
-and [challenge-response detection](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/detect-response/).
-
-## Sources and verification
-
-| Library | Catalogue / download method | Current verification |
-| --- | --- | --- |
-| Anna's Archive | HTML catalogue, session login, member fast-download API; LibGen fallback by MD5 | Fixture-tested authentication, session reuse, retries, search and fallback. Anonymous live mirrors were protected. |
-| LibGen | HTML tables and record links, direct `get.php` links | Live catalogue returned results; download link parsing and fallback tested with fixtures. |
-| Z-Library | Authenticated EAPI or public HTML book cards | Login, search, session reuse and file API fixture-tested. Anonymous live mirrors redirected or were protected; a real account is still needed for acceptance. |
-| Memory of the World | JSON catalogue and library file paths | Live catalogue returned results. File mapping and audiobook filtering tested with fixtures. |
-| Liber3 | Reads the site's entrypoint to discover its catalogue gateway; read-only catalogue query, IPFS files | Implemented against the site's published frontend protocol. Gateway was unreachable during the live check; not accepted end to end. |
-| WeLib | Generic HTML book-record catalogue and direct links | Experimental. Live site returned HTTP 403; its layout and acquisition have not been accepted. |
-| LibSTC | Generic HTML book-record catalogue and direct links | Experimental. Domain was unreachable; its layout and acquisition have not been accepted. |
-
-Sci-Hub and Anna's software archive are excluded. Unknown site layouts fail
-explicitly rather than pretending that an empty catalogue is a successful search.
-Ebooks and individually indexed audio files are supported. Archive-packaged
-audiobooks without reliable format metadata are not guessed to be audio.
-
-The live smoke check on October 11, 2026 returned 20 merged releases from LibGen
-and Memory of the World across EPUB, PDF, and MOBI. No live book files were
-downloaded, real credentials submitted, or production plugin installed.
+**Test connection** refreshes the mirror list and checks catalogue searches. If
+a search fails, BookOrbit's logs show which sources were unavailable.
 
 ## Development
 
-`pnpm check` runs strict TypeScript checking, deterministic fixture tests, and
-the single-file ESM build. The bundle is minified to fit BookOrbit's 512 KiB upload
-limit; readable source remains in `src/`. The build fails if it exceeds that limit
-or fails an isolated import using BookOrbit's five-second inspection deadline,
-64 KiB output cap, and stripped environment. Effect supplies typed failures, retry schedules,
-timeouts, interruptible execution, concurrency control, and session semaphores.
-Cheerio parses HTML without executing it. The runtime has no external npm imports.
+Requires Node.js and pnpm. The plugin uses TypeScript and Effect.
 
-The vendored `vendor/bookorbit-plugin-api.ts` is the upstream API contract from
-BookOrbit v3.3.0, not a runtime dependency. Its upstream license is preserved in
-`vendor/BOOKORBIT-LICENSE`; see `vendor/NOTICE.md`.
+```sh
+pnpm install
+pnpm check
+```
 
-References used for protocol verification:
+`pnpm check` runs formatting checks, type checking, tests, and the build. Upload the resulting
+`dist/index.mjs` to BookOrbit. The build checks BookOrbit's 512 KiB upload limit
+and verifies that the plugin can be loaded.
 
-- [BookOrbit plugin contract](https://github.com/bookorbit/bookorbit/blob/v3.3.0/packages/plugin-api/src/index.ts)
-- [BookOrbit Requests](https://bookorbit.app/book-requests/)
-- [Open Slum directory](https://open-slum.org/)
-- [Z-Library API client](https://github.com/bipinkrish/Zlibrary-API)
-- The currently served Liber3 and Memory of the World frontend scripts and public catalogue responses.
+The vendored BookOrbit plugin API and its license are in `vendor/`.
+
+## Releasing
+
+Bump the version in `package.json` and merge a pull request after checks pass.
+GitHub Actions builds and checks the plugin. Approve the `plugin-signing`
+deployment to sign and publish `index.mjs` and its update manifest.
+The signing key is held in the main-only `plugin-signing` environment.
+
+MIT licensed; vendored files retain their upstream licenses.
