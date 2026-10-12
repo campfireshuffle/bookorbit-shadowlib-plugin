@@ -378,6 +378,16 @@ export default {
             accounts,
             ipfsOrigin,
           ).pipe(
+            Effect.timeoutOrElse({
+              duration: "3 seconds",
+              orElse: () =>
+                Effect.fail(
+                  failure(
+                    `${location.origin}: file lookup timed out; trying another mirror.`,
+                    "timeout",
+                  ),
+                ),
+            }),
             Effect.map((url) => ({ ok: true as const, url })),
             Effect.catch((error) =>
               Effect.succeed({ ok: false as const, error }),
@@ -409,7 +419,18 @@ export default {
           };
         }
         return yield* Effect.fail(last);
-      }),
+      }).pipe(
+        Effect.timeoutOrElse({
+          duration: "16 seconds",
+          orElse: () =>
+            Effect.fail(
+              failure(
+                "File lookup budget expired; none of the available mirrors resolved this release.",
+                "timeout",
+              ),
+            ),
+        }),
+      ),
       host,
       signal,
     );

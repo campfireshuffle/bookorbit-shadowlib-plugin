@@ -577,7 +577,10 @@ test("test connection refreshes discovery and refuses a reachable but unsearchab
   assert(h.logs.some((line) => line.includes("Domain check")));
   const second = await plugin.test(config, h.value);
   assert.equal(second.success, false);
-  assert.equal(h.calls.filter((c) => c.url === config.baseUrl).length, 2);
+  assert.equal(
+    h.calls.filter((c) => new URL(c.url).origin === config.baseUrl).length,
+    2,
+  );
 });
 test("Liber3 discovers its gateway without running its script and decodes the published row format", async () => {
   const config = cfg("liber3");
@@ -718,4 +721,133 @@ test("a blocked anonymous domain probe does not prevent a valid account from sea
   const result = await plugin.test(config, h.value);
   assert.equal(result.success, true);
   assert(h.logs.some((line) => line.includes("protected")));
+});
+
+test("Memory empty ISBN results are a completed search, not a source failure", async () => {
+  const config = cfg("memory");
+  const h = host((url) =>
+    url.origin === config.baseUrl
+      ? new Response(
+          directory({ other: ["https://library.memoryoftheworld.org"] }),
+        )
+      : Response.json({ _items: null, _meta: { total: 0 } }),
+  );
+  assert.deepEqual(
+    await plugin.search(
+      { ...q, isbn13: "9781538752036" },
+      config,
+      h.value,
+      new AbortController().signal,
+    ),
+    [],
+  );
+});
+
+test("public cookie redirects work without forwarding account credentials", async () => {
+  const h = host((url, init) => {
+    if (init?.headers?.Cookie === "__diamwall=synthetic")
+      return new Response("catalogue");
+    return new Response(null, {
+      status: 307,
+      headers: {
+        Location: url.href,
+        "Set-Cookie": "__diamwall=synthetic; Secure; HttpOnly",
+      },
+    });
+  });
+  const response = await Effect.runPromise(
+    request("https://redirect-catalogue.example/search").pipe(
+      Effect.provideService(Network, { host: h.value }),
+    ),
+  );
+  assert.equal(response.status, 200);
+  const accountResponse = await Effect.runPromise(
+    request("https://redirect-catalogue.example/search", {
+      headers: { Cookie: "session=synthetic" },
+    }).pipe(Effect.provideService(Network, { host: h.value })),
+  );
+  assert.equal(accountResponse.status, 307);
+  assert.equal(h.calls.length, 3);
+});
+
+test("a stalled file resolver falls back before BookOrbit cancels the operation", async () => {
+  const config = cfg("libgen");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          libgen: [
+            "https://stalled-file.example",
+            "https://working-file.example",
+          ],
+        }),
+      );
+    if (url.pathname === "/index.php") return new Response(libgenHtml());
+    if (url.origin === "https://stalled-file.example")
+      return new Promise<Response>(() => {});
+    return new Response(
+      '<a href="https://files.example/book.epub">Download</a>',
+    );
+  });
+  const releases = await plugin.search(
+    q,
+    config,
+    h.value,
+    new AbortController().signal,
+  );
+  const file = await plugin.resolveFile!(
+    releases[0],
+    config,
+    h.value,
+    AbortSignal.timeout(4500),
+  );
+  assert.equal(file.url, "https://files.example/book.epub");
+});
+
+test("public redirects discard cookies across origins and remain bounded", async () => {
+  const h = host((url, init) => {
+    if (url.hostname === "public-redirect.example")
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: "https://other-public.example/search",
+          "Set-Cookie": "session=private; Secure",
+        },
+      });
+    assert.equal(init?.headers?.Cookie, undefined);
+    return new Response("catalogue");
+  });
+  await Effect.runPromise(
+    request("https://public-redirect.example/search").pipe(
+      Effect.provideService(Network, { host: h.value }),
+    ),
+  );
+  const loop = host(
+    (url) =>
+      new Response(null, { status: 307, headers: { Location: url.href } }),
+  );
+  await assert.rejects(
+    Effect.runPromise(
+      request("https://redirect-loop.example/search").pipe(
+        Effect.provideService(Network, { host: loop.value }),
+      ),
+    ),
+    /redirect limit/,
+  );
+  assert.equal(loop.calls.length, 4);
+  const unsafe = host(
+    () =>
+      new Response(null, {
+        status: 302,
+        headers: { Location: "http://unsafe-redirect.example" },
+      }),
+  );
+  await assert.rejects(
+    Effect.runPromise(
+      request("https://secure-redirect.example/search").pipe(
+        Effect.provideService(Network, { host: unsafe.value }),
+      ),
+    ),
+    /unsafe redirect/,
+  );
 });
