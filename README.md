@@ -57,12 +57,15 @@ an account pinned to that host. Sessions remain separate per host.
 Z-Library also accepts `"userId": "YOUR-ID"` and `"userKey": "YOUR-KEY"` instead
 of email/password.
 
-For a helper requiring a bearer token, add this entry alongside your accounts:
+For a helper requiring a bearer token, include `browserHelper` alongside your
+accounts in the same JSON:
 
 ```json
-"browserHelper": {
-  "origin": "https://YOUR-HELPER",
-  "token": "YOUR-TOKEN"
+{
+  "browserHelper": {
+    "origin": "https://YOUR-HELPER",
+    "token": "YOUR-TOKEN"
+  }
 }
 ```
 

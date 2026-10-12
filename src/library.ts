@@ -47,7 +47,10 @@ const settings = (cfg: PluginIndexerConfig) =>
         ),
       };
     },
-    catch: () => failure("Invalid library settings or IPFS gateway."),
+    catch: (error) =>
+      error instanceof SourceError
+        ? error
+        : failure("Invalid library settings or IPFS gateway."),
   });
 const configuredMirrors = (
   mirrors: Mirror[],
@@ -211,7 +214,10 @@ const prepare = Effect.fnUntraced(function* (
   const browser = yield* browserHelper(cfg, host);
   const accounts = yield* Effect.try({
     try: () => credentials(cfg.credential),
-    catch: () => failure("Invalid encrypted credential JSON.", "unauthorized"),
+    catch: (error) =>
+      error instanceof SourceError
+        ? error
+        : failure("Invalid encrypted credential JSON.", "unauthorized"),
   });
   const discovered = yield* discover(cfg.baseUrl, refresh);
   for (const family of ["annas", "zlibrary"] as const) {

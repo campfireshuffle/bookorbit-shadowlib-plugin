@@ -8,7 +8,7 @@ import {
   stringSetting,
   type PluginHost,
   type PluginIndexerConfig,
-  type SourceError,
+  SourceError,
 } from "./model.js";
 
 const Envelope = Schema.Struct({
@@ -61,11 +61,13 @@ export const browserHelper = Effect.fnUntraced(function* (
         throw Error("Helper credential origin mismatch");
       return { endpoint: endpoint.href, token: account?.token };
     },
-    catch: () =>
-      failure(
-        "Use an HTTP(S) browser helper URL without credentials, query or fragment. Any encrypted helper token must match its origin.",
-        "unauthorized",
-      ),
+    catch: (error) =>
+      error instanceof SourceError
+        ? error
+        : failure(
+            "Use an HTTP(S) browser helper URL without credentials, query or fragment. Any encrypted helper token must match its origin.",
+            "unauthorized",
+          ),
   });
   let lock = locks.get(endpoint);
   if (!lock) {

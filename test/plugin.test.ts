@@ -1346,7 +1346,7 @@ test("old selections skip removed sources without contacting them", async () => 
   config.settings = { libraries: "welib,libstc" };
   await assert.rejects(
     plugin.search(q, config, h.value, AbortSignal.timeout(3000)),
-    /Invalid library settings/,
+    /Select at least one supported library/,
   );
 });
 
@@ -1390,4 +1390,32 @@ test("account-only download providers never request anonymous pages", async () =
     /requires/,
   );
   assert.equal(h.calls.length, 0);
+});
+
+test("configuration errors keep safe actionable guidance with or without a helper", async () => {
+  const secret = "private-configuration-fixture";
+  for (const browserHelperUrl of ["", "https://helper-guidance.example"]) {
+    const config = cfg(
+      "annas",
+      JSON.stringify({
+        annas: { origin: "http://invalid.example", key: secret },
+      }),
+    );
+    config.settings = { ...config.settings, browserHelperUrl };
+    const h = host(() => {
+      throw Error("Configuration should fail before network access");
+    });
+    await assert.rejects(
+      plugin.search(q, config, h.value, new AbortController().signal),
+      (error: Error) => {
+        assert.match(
+          error.message,
+          /Library origin\/trustedOrigins must be HTTPS origins/,
+        );
+        assert(!error.message.includes(secret));
+        return true;
+      },
+    );
+    assert.equal(h.calls.length, 0);
+  }
 });
