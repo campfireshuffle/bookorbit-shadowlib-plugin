@@ -56,7 +56,7 @@ export default {
       type: "string",
       label: "Browser helper URL",
       default: "",
-      hint: "Optional TRAWL or FlareSolverr URL (base URL or /v1). For LAN helpers, enable Allow private IP addresses. Run Test connection to warm sessions; leave empty for HTTP only.",
+      hint: "Optional TRAWL or FlareSolverr URL (base URL or /v1). For LAN helpers, enable Allow private IP addresses. Test helper access and a catalogue with Test connection; leave empty for HTTP only.",
     },
     {
       key: "libraries",

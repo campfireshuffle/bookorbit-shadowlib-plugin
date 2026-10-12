@@ -580,7 +580,8 @@ test("test connection refreshes discovery and refuses a reachable but unsearchab
   );
   const result = await plugin.test(config, h.value);
   assert.equal(result.success, false);
-  assert(h.logs.some((line) => line.includes("Domain check")));
+  assert("error" in result);
+  assert.match(result.error, /search layout not recognized/);
   const second = await plugin.test(config, h.value);
   assert.equal(second.success, false);
   assert.equal(
@@ -699,7 +700,7 @@ test("normal Cloudflare JavaScript detection is not mistaken for a blocking chal
   assert.equal(response.status, 200);
   assert((await response.text()).includes("A library"));
 });
-test("a blocked anonymous domain probe does not prevent a valid account from searching", async () => {
+test("connection test checks an authenticated catalogue without probing its homepage", async () => {
   const config = cfg(
     "annas",
     JSON.stringify({
@@ -726,7 +727,13 @@ test("a blocked anonymous domain probe does not prevent a valid account from sea
   });
   const result = await plugin.test(config, h.value);
   assert.equal(result.success, true);
-  assert(h.logs.some((line) => line.includes("protected")));
+  assert(
+    !h.calls.some(
+      (call) =>
+        new URL(call.url).origin === "https://member-only-fixture.example" &&
+        new URL(call.url).pathname === "/",
+    ),
+  );
 });
 
 test("Memory empty ISBN results are a completed search, not a source failure", async () => {
@@ -1113,7 +1120,7 @@ test("browser helper clears public challenges and reuses a host-scoped session",
   assert.equal(gets[0].session, gets[1].session);
   assert.equal(gets[0].maxTimeout, 4500);
   assert.equal((await plugin.test(config, h.value)).success, true);
-  assert.equal(commands.at(-1)?.maxTimeout, 20000);
+  assert.equal(commands.at(-1)?.maxTimeout, 12000);
   const { browserHelper } = await import("../src/browser.js");
   const helper = await Effect.runPromise(browserHelper(config, h.value));
   await Effect.runPromise(
@@ -1925,6 +1932,58 @@ test("a valid empty catalogue answer survives the remaining mirror budget", asyn
   assert(
     h.calls.some(
       ({ url }) => new URL(url).hostname === "empty-followup-3.example",
+    ),
+  );
+});
+
+test("connection proof returns a readable catalogue without waiting for stalled sources or homepage probes", async () => {
+  const config = cfg("libgen,memory");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          libgen: Array.from(
+            { length: 12 },
+            (_, i) => `https://stalled-library-${i}.example`,
+          ),
+          other: ["https://library.memoryoftheworld.example"],
+        }),
+      );
+    assert.notEqual(url.pathname, "/");
+    if (url.hostname === "library.memoryoftheworld.example")
+      return Response.json(memoryBody());
+    return new Promise<Response>(() => {});
+  });
+  const result = await Promise.race([
+    plugin.test(config, h.value),
+    new Promise<never>((_, reject) => {
+      setTimeout(
+        () => reject(new Error("Connection proof waited for a stalled source")),
+        1000,
+      ).unref();
+    }),
+  ]);
+  assert.equal(result.success, true);
+  assert.match(result.indexerName ?? "", /readable catalogue/);
+});
+
+test("connection test bounds a browser helper that never responds", async () => {
+  const config = cfg("memory");
+  config.settings!.browserHelperUrl = "http://unresponsive-helper.example:8191";
+  const h = host((url) =>
+    url.origin === config.baseUrl
+      ? new Response(
+          directory({ other: ["https://library.memoryoftheworld.example"] }),
+        )
+      : new Promise<Response>(() => {}),
+  );
+  const result = await plugin.test(config, h.value);
+  assert.equal(result.success, false);
+  assert("error" in result);
+  assert.match(result.error, /Browser helper did not respond/);
+  assert(
+    !h.calls.some(
+      ({ url }) => new URL(url).hostname === "library.memoryoftheworld.example",
     ),
   );
 });

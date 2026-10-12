@@ -25,7 +25,7 @@ import {
   type PluginReleaseCandidate,
   type PluginReleaseQuery,
 } from "./model.js";
-import { Network, request, text } from "./network.js";
+import { Network } from "./network.js";
 import { resolveLocation, searchMirror } from "./sources.js";
 
 const settings = (cfg: PluginIndexerConfig) =>
@@ -111,7 +111,7 @@ const searchAll = Effect.fnUntraced(function* (
           const result = yield* searchMirror(mirror, q, cfg, accounts).pipe(
             Effect.timeoutOrElse({
               duration: warming
-                ? "20 seconds"
+                ? "12 seconds"
                 : browser
                   ? "6 seconds"
                   : "3 seconds",
@@ -145,7 +145,7 @@ const searchAll = Effect.fnUntraced(function* (
       });
       return searchFamily.pipe(
         Effect.timeoutOrElse({
-          duration: warming ? "24 seconds" : "8 seconds",
+          duration: warming ? "14 seconds" : "8 seconds",
           orElse: () =>
             answered
               ? Effect.succeed([] as Hit[])
@@ -187,52 +187,6 @@ const searchAll = Effect.fnUntraced(function* (
   for (let i = 0; i < count; i++)
     for (const list of results) if (list[i]) mixed.push(list[i]);
   return mergeHits(mixed, q.mediaKind, q.language, q.limit);
-});
-
-const health = Effect.fnUntraced(function* (mirrors: Mirror[]) {
-  const { host } = yield* Network;
-  return yield* Effect.forEach(
-    mirrors,
-    (mirror) =>
-      Effect.gen(function* () {
-        const response = yield* request(mirror.origin);
-        const html = yield* text(response);
-        const status =
-          response.status === 401 ||
-          response.status === 403 ||
-          /ddos-guard|checking your browser|cf-chl-|captcha/i.test(html)
-            ? "protected"
-            : response.ok
-              ? "up"
-              : response.status >= 300 && response.status < 400
-                ? "redirect"
-                : `HTTP ${response.status}`;
-        return { ...mirror, status };
-      }).pipe(
-        Effect.timeoutOrElse({
-          duration: "3 seconds",
-          orElse: () => Effect.fail(failure("Probe timed out.", "timeout")),
-        }),
-        Effect.catch((error) =>
-          Effect.succeed({
-            ...mirror,
-            status: /browser challenge|access denied/.test(error.message)
-              ? "protected"
-              : error.kind === "throttled"
-                ? "throttled"
-                : "unreachable",
-          }),
-        ),
-        Effect.tap((result) =>
-          Effect.sync(() =>
-            host.logger.log(
-              `Domain check ${result.family}: ${result.origin} — ${result.status}.`,
-            ),
-          ),
-        ),
-      ),
-    { concurrency: 4 },
-  );
 });
 
 const prepare = Effect.fnUntraced(function* (
@@ -278,43 +232,75 @@ export const search = Effect.fnUntraced(function* (
     Effect.provideService(Network, { host, browser: prepared.browser }),
   );
 });
-export const test = Effect.fnUntraced(function* (cfg: PluginIndexerConfig) {
-  const { host } = yield* Network;
-  const prepared = yield* prepare(cfg, true);
-  const { mirrors, browser, enabled } = prepared;
-  if (browser) yield* browser.check;
-  const checks = yield* health(
-    mirrors.filter((m) => enabled.includes(m.family)),
-  );
-  const releases = yield* searchAll(
-    {
-      title: "Pride and Prejudice",
-      author: "Jane Austen",
-      isbn13: null,
-      isbn13s: [],
-      mediaKind: "ebook",
-      language: "en",
-      limit: 10,
-    },
-    cfg,
-    prepared,
-    Boolean(browser),
-  ).pipe(
-    Effect.provideService(Network, { host, browser, browserTimeoutMs: 20000 }),
-  );
-  if (!releases.length)
+export const test = Effect.fnUntraced(
+  function* (cfg: PluginIndexerConfig) {
+    const { host } = yield* Network;
+    const prepared = yield* prepare(cfg, true);
+    const { browser, enabled } = prepared;
+    if (browser)
+      yield* browser.check.pipe(
+        Effect.timeoutOrElse({
+          duration: "3 seconds",
+          orElse: () =>
+            Effect.fail(
+              failure(
+                "Browser helper did not respond. Check its URL and connectivity.",
+                "timeout",
+              ),
+            ),
+        }),
+      );
+    // Connection proof needs one readable catalogue, not every mirror's homepage.
+    const releases = yield* Effect.raceAll(
+      enabled.map((family) =>
+        searchAll(
+          {
+            title: "Pride and Prejudice",
+            author: "Jane Austen",
+            isbn13: null,
+            isbn13s: [],
+            mediaKind: "ebook",
+            language: "en",
+            limit: 10,
+          },
+          cfg,
+          { ...prepared, enabled: [family] },
+          Boolean(browser),
+        ).pipe(
+          Effect.flatMap((releases) =>
+            releases.length
+              ? Effect.succeed(releases)
+              : Effect.fail(
+                  failure(
+                    `${family}: no readable test results. Check source diagnostics in the BookOrbit logs.`,
+                  ),
+                ),
+          ),
+        ),
+      ),
+    ).pipe(
+      Effect.provideService(Network, {
+        host,
+        browser,
+        browserTimeoutMs: 12000,
+      }),
+    );
     return {
-      success: false,
-      error:
-        "Domain checks completed, but no source returned a readable catalogue result. See domain diagnostics in the BookOrbit logs.",
+      success: true,
+      indexerName: `BookOrbit ShadowLib: ${releases.length} test releases from a readable catalogue${browser ? "; browser helper connected" : ""}`,
     };
-  const up = checks.filter((m) => m.status === "up").length;
-  const protectedCount = checks.filter((m) => m.status === "protected").length;
-  return {
-    success: true,
-    indexerName: `BookOrbit ShadowLib: ${checks.length} domains checked (${up} up, ${protectedCount} protected); ${releases.length} test releases${browser ? "; browser helper connected" : ""}`,
-  };
-});
+  },
+  Effect.timeoutOrElse({
+    duration: "18 seconds",
+    orElse: () =>
+      Effect.fail(
+        failure(
+          "Connection test timed out. Check source diagnostics and retry to allow browser sessions to warm up.",
+          "timeout",
+        ),
+      ),
+  }),
+);
 export const resolveFile = Effect.fnUntraced(
   function* (release: PluginReleaseCandidate, cfg: PluginIndexerConfig) {
     const { host } = yield* Network;

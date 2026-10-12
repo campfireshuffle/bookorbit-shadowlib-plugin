@@ -44,7 +44,7 @@ For a LAN helper, enable **Allow private IP addresses**. Save and run **Test con
 
 When configured, the helper loads public website pages first; otherwise the plugin
 fetches them directly. Library credentials are never sent to it. API requests stay direct. Some browser checks may still fail.
-A successful search or connection test does not guarantee a download will work.
+Test connection checks helper access and one readable catalogue. It does not verify every source or guarantee a download will work.
 
 <details>
 <summary>Advanced configuration</summary>
