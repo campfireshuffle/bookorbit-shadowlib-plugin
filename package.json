@@ -1,7 +1,7 @@
 {
-  "name": "bookorbit-open-slum-plugin",
+  "name": "bookorbit-shadowlib-plugin",
   "version": "1.0.0",
-  "description": "BookOrbit indexer with Open Slum mirror discovery and encrypted credentials",
+  "description": "BookOrbit ShadowLib indexer with Open Slum mirror discovery and encrypted credentials",
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",

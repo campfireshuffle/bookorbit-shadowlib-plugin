@@ -1,7 +1,7 @@
 import { Clock, Context, Effect, Schedule } from "effect";
 import { failure, type PluginHost, type PluginRequestInit, SourceError } from "./model.js";
 
-export class Network extends Context.Service<Network, { host: PluginHost }>()("open-slum/Network") {}
+export class Network extends Context.Service<Network, { host: PluginHost }>()("bookorbit-shadowlib-plugin/Network") {}
 const cooldowns = new Map<string, number>();
 const retrySchedule = Schedule.max([Schedule.exponential("250 millis"), Schedule.recurs(2)]).pipe(
   Schedule.setInputType<SourceError>(),
@@ -14,7 +14,7 @@ export const request = Effect.fnUntraced(function*(url: string, init: PluginRequ
   const now = yield* Clock.currentTimeMillis;
   if ((cooldowns.get(origin) ?? 0) > now) return yield* Effect.fail(failure(`${origin}: cooling down after rate limiting.`, "throttled"));
   const attempt = Effect.gen(function*() {
-    const response = yield* Effect.tryPromise({ try: () => host.fetch(url, { ...init, redirect: "manual", headers: { "User-Agent": "BookOrbit-Open-Slum/0.1", ...init.headers } }), catch: () => failure(`${origin}: network request failed.`, "unreachable", true) });
+    const response = yield* Effect.tryPromise({ try: () => host.fetch(url, { ...init, redirect: "manual", headers: { "User-Agent": "BookOrbit-ShadowLib/0.1", ...init.headers } }), catch: () => failure(`${origin}: network request failed.`, "unreachable", true) });
     if (response.status === 429 || response.status === 408 || response.status >= 500) {
       const retryHeader = response.headers.get("retry-after");
       const clock = yield* Clock.currentTimeMillis;

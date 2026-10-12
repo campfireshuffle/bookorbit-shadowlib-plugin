@@ -1,4 +1,4 @@
-# BookOrbit Open Slum plugin
+# BookOrbit ShadowLib plugin
 
 A private BookOrbit indexer built with TypeScript and Effect 4. It discovers
 book-library domains from [Open Slum](https://open-slum.org/) and bundles into
@@ -12,7 +12,7 @@ pnpm check
 ```
 
 In BookOrbit, open **Settings → Server → Requests → Install a plugin** and upload
-`dist/index.mjs`. Add **Open Slum libraries** as a source. Leave the base URL as
+`dist/index.mjs`. Add **BookOrbit ShadowLib** as a source. Leave the base URL as
 `https://open-slum.org`; select the libraries you want searched. Disable the old
 Anna's-only source to avoid duplicate searches and additional sign-ins.
 

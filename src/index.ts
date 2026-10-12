@@ -96,8 +96,8 @@ const prepare = Effect.fnUntraced(function*(cfg: PluginIndexerConfig, refresh = 
 export default {
   apiVersion: 1,
   version: "0.1.0",
-  type: "open-slum",
-  label: "Open Slum libraries",
+  type: "bookorbit-shadowlib-plugin",
+  label: "BookOrbit ShadowLib",
   requiresCredential: false,
   credentialKind: "apiKey",
   mediaKinds: ["ebook", "audiobook"],
@@ -125,7 +125,7 @@ export default {
         if (!releases.length) return { success: false, error: "Domain checks completed, but no source returned a readable catalogue result. See domain diagnostics in the BookOrbit logs." };
         const up = checks.filter((m) => m.status === "up").length;
         const protectedCount = checks.filter((m) => m.status === "protected").length;
-        return { success: true, indexerName: `Open Slum: ${checks.length} domains checked (${up} up, ${protectedCount} protected); ${releases.length} test releases` };
+        return { success: true, indexerName: `BookOrbit ShadowLib: ${checks.length} domains checked (${up} up, ${protectedCount} protected); ${releases.length} test releases` };
       }), cfg, host);
     } catch (error) { return { success: false, error: error instanceof Error ? error.message : "Connection test failed." }; }
   },
