@@ -49,14 +49,14 @@ export default {
   seedsBack: false,
   defaultBaseUrl: "https://open-slum.org",
   baseUrlHint:
-    "Open Slum directory origin. Credentials are JSON in the encrypted API key field; never enter them as settings.",
+    "Usually leave unchanged. ShadowLib uses Open Slum to find working mirrors. Paste account JSON from the README into the API key field below.",
   settingsFields: [
     {
       key: "browserHelperUrl",
       type: "string",
       label: "Browser helper URL",
       default: "",
-      hint: "Optional TRAWL or FlareSolverr URL (base URL or /v1). For LAN helpers, enable Allow private IP addresses. Test helper access and a catalogue with Test connection; leave empty for HTTP only.",
+      hint: "Optional: your TRAWL, Byparr or FlareSolverr address. For a local helper, enable Allow private addresses below. Leave blank if you do not use a browser helper.",
     },
     {
       key: "libraries",
@@ -66,14 +66,14 @@ export default {
       minItems: 1,
       label: "Libraries to search",
       default: families.join(","),
-      hint: "Search every selected catalogue, using working mirrors within each. Only libraries with API endpoints are included; some still need HTML search.",
+      hint: "Choose which libraries to search. Z-Library requires an account; Anna’s Archive downloads require a paid membership key.",
     },
     {
       key: "ipfsOrigin",
       type: "string",
       label: "IPFS gateway",
       default: "https://dweb.link",
-      hint: "HTTPS origin used for Liber3 files.",
+      hint: "Used for Liber3 downloads. Usually leave unchanged.",
     },
   ],
   search(q, cfg, host, signal) {

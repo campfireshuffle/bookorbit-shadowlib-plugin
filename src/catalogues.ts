@@ -99,23 +99,6 @@ export function parseHtml(html: string, mirror: Mirror): Hit[] {
     });
     return results;
   }
-  $("z-bookcard").each((_, element) => {
-    const card = $(element);
-    const id = card.attr("id") ?? "";
-    const page = card.attr("href");
-    const title = card.find('[slot="title"]').text();
-    if (!id || !page || !title) return;
-    const r = hit(
-      title,
-      card.text(),
-      { ...mirror, id, page },
-      card.find('[slot="author"]').text(),
-    );
-    r.format = card.attr("extension")?.toLowerCase() ?? r.format;
-    r.language = card.attr("language") === "english" ? "en" : undefined;
-    r.sizeBytes = bytes(card.attr("filesize") ?? "") ?? r.sizeBytes;
-    results.push(r);
-  });
   $("a[href]").each((_, element) => {
     const link = $(element);
     const href = link.attr("href") ?? "";
@@ -152,7 +135,7 @@ export function parseHtml(html: string, mirror: Mirror): Hit[] {
   });
   if (
     !results.length &&
-    !/no (?:books|results|matches)|0 results|nothing found|tablelibgen|js-search-results|search-results|z-bookcard|searchresult/i.test(
+    !/no (?:books|results|matches)|0 results|nothing found|tablelibgen|js-search-results|search-results|searchresult/i.test(
       html,
     )
   )

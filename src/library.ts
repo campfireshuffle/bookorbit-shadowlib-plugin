@@ -38,7 +38,7 @@ const settings = (cfg: PluginIndexerConfig) =>
       )
         .split(",")
         .map((s) => s.trim())
-        .filter((family) => family && !["welib", "libstc"].includes(family));
+        .filter(Boolean);
       if (!enabled.length)
         throw failure("Select at least one supported library.");
       return {

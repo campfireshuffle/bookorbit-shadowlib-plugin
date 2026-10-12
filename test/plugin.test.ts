@@ -96,7 +96,7 @@ function host(
   return { value, calls, logs };
 }
 
-test("live Open Slum fixture discovers API-capable libraries, excluding HTML-only sources", () => {
+test("Open Slum fixture discovers supported book libraries", () => {
   const result = parseDirectory(
     readFileSync(new URL("fixtures/open-slum.html", import.meta.url), "utf8"),
   );
@@ -106,9 +106,7 @@ test("live Open Slum fixture discovers API-capable libraries, excluding HTML-onl
       (m) =>
         m.origin.includes("sci-hub") ||
         m.origin.includes("sci-net") ||
-        m.origin.includes("software.") ||
-        m.origin.includes("welib") ||
-        m.origin.includes("libstc"),
+        m.origin.includes("software."),
     ),
   );
   assert.deepEqual(
@@ -1088,7 +1086,7 @@ test("browser helper clears public challenges and reuses a host-scoped session",
   const h = host((url, init) => {
     if (url.origin === config.baseUrl)
       return new Response(
-        directory({ annas: ["https://zlib-browser.example"] }),
+        directory({ annas: ["https://anna-browser.example"] }),
       );
     if (url.hostname === "solver.example") {
       assert.equal(url.pathname, "/v1");
@@ -1102,7 +1100,7 @@ test("browser helper clears public challenges and reuses a host-scoped session",
               solution: {
                 status: 200,
                 url: command.url,
-                response: `<z-bookcard id="123" href="/book/123/fixture.html" extension="epub" language="english"><div slot="title">${q.title}</div><div slot="author">${q.author}</div></z-bookcard>`,
+                response: annaHtml(),
               },
             }
           : {}),
@@ -1259,10 +1257,11 @@ test("helper failures explain LAN permissions without echoing host errors", asyn
 });
 
 test("decimal catalogue sizes are whole bytes accepted by the download database", () => {
-  const [release] = parseHtml(
-    `<z-bookcard id="123" href="/book/123/fixture" extension="epub" filesize="2.15 MB"><div slot="title">Fixture</div></z-bookcard>`,
-    { family: "zlibrary", origin: "https://zlib-size.example", status: "up" },
-  );
+  const [release] = parseHtml(annaHtml().replace("2 MB", "2.15 MB"), {
+    family: "annas",
+    origin: "https://anna-size.example",
+    status: "up",
+  });
   assert.equal(release.sizeBytes, 2254438);
   assert(Number.isSafeInteger(release.sizeBytes));
 });
@@ -1343,30 +1342,6 @@ test("other libraries retain direct download routes and named book attachments",
       "https://files-fixture.example",
     ),
     "https://files-fixture.example/opaque",
-  );
-});
-
-test("old selections skip removed sources without contacting them", async () => {
-  const config = cfg("annas,welib,libstc");
-  const h = host((url) => {
-    if (url.origin === config.baseUrl)
-      return new Response(
-        directory({
-          annas: ["https://migration-anna.example"],
-          other: ["https://welib.example", "https://libstc.example"],
-        }),
-      );
-    assert.equal(url.origin, "https://migration-anna.example");
-    return new Response(annaHtml());
-  });
-  assert.equal(
-    (await plugin.search(q, config, h.value, AbortSignal.timeout(3000))).length,
-    1,
-  );
-  config.settings = { libraries: "welib,libstc" };
-  await assert.rejects(
-    plugin.search(q, config, h.value, AbortSignal.timeout(3000)),
-    /Select at least one supported library/,
   );
 });
 
@@ -1479,7 +1454,7 @@ test("incomplete or wrong-provider account JSON fails before network access", as
 test("invalid library settings fail before discovery", async () => {
   for (const settings of [
     { libraries: "typo" },
-    { libraries: "welib,libstc" },
+    { libraries: "" },
     { libraries: "memory", ipfsOrigin: "http://invalid.example" },
   ]) {
     const config = cfg();
