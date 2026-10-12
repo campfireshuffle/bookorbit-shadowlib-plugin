@@ -67,23 +67,14 @@ const configuredMirrors = (
   }
   return all;
 };
-const byPriority =
-  (family: string, accounts: Credentials) => (a: Mirror, b: Mirror) => {
-    const pinned =
-      family === "annas"
-        ? accounts.annas?.origin
-        : family === "zlibrary"
-          ? accounts.zlibrary?.origin
-          : undefined;
-    const rank = (m: Mirror) => {
-      if (m.origin === pinned && accountForMirror(accounts, m)) return -1;
-      const status =
-        { up: 0, protected: 1, degraded: 2, unknown: 3, down: 4 }[m.status] ??
-        3;
-      return status + (accountForMirror(accounts, m) ? 0 : 5);
-    };
-    return rank(a) - rank(b);
+const byPriority = (accounts: Credentials) => (a: Mirror, b: Mirror) => {
+  const rank = (m: Mirror) => {
+    const status =
+      { up: 0, protected: 1, degraded: 2, unknown: 3, down: 4 }[m.status] ?? 3;
+    return status + (accountForMirror(accounts, m) ? 0 : 5);
   };
+  return rank(a) - rank(b);
+};
 type Prepared = Effect.Success<ReturnType<typeof prepare>>;
 
 const searchAll = Effect.fnUntraced(function* (
@@ -99,7 +90,7 @@ const searchAll = Effect.fnUntraced(function* (
     (family) => {
       const candidates = mirrors
         .filter((m) => m.family === family)
-        .sort(byPriority(family, accounts));
+        .sort(byPriority(accounts));
       let answered = false;
       const searchFamily = Effect.gen(function* () {
         if (!candidates.length)
@@ -211,11 +202,7 @@ const prepare = Effect.fnUntraced(function* (
         ...account,
         trustedOrigins:
           account.trustedOrigins ??
-          (account.origin
-            ? [account.origin]
-            : discovered
-                .filter((m) => m.family === family)
-                .map((m) => m.origin)),
+          discovered.filter((m) => m.family === family).map((m) => m.origin),
       };
   }
   const mirrors = configuredMirrors(discovered, accounts);
@@ -318,7 +305,7 @@ export const resolveFile = Effect.fnUntraced(
       if (!["annas", "zlibrary", "libgen"].includes(location.family)) continue;
       for (const mirror of mirrors
         .filter((m) => m.family === location.family)
-        .sort(byPriority(location.family, accounts))) {
+        .sort(byPriority(accounts))) {
         if (
           !locations.some(
             (l) =>

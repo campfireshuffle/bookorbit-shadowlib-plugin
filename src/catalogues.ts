@@ -23,7 +23,6 @@ export type Hit = Omit<PluginReleaseCandidate, "guid"> & {
 };
 export const GuidSchema = Schema.Struct({
   locations: Schema.Array(LocationSchema),
-  md5: Schema.optionalKey(Schema.String),
 });
 const extensions =
   "epub|pdf|mobi|azw3|fb2|djvu|cbz|cbr|mp3|m4b|m4a|flac|ogg|opus|zip";
@@ -36,8 +35,10 @@ function wholeBytes(value: number | null): number | null {
   const size = Math.round(value);
   return Number.isSafeInteger(size) && size >= 0 ? size : null;
 }
-function bytes(value: string): number | null {
-  const match = /([\d.]+)\s*(bytes?|[kmgt]i?b)\b/i.exec(value);
+export function parseSize(value: string): number | null {
+  const match = /(?<![\d.,-])(\d+(?:\.\d+)?)\s*(bytes?|[kmgt]i?b)\b/i.exec(
+    value,
+  );
   if (!match) return null;
   return wholeBytes(
     Number(match[1]) * 1024 ** ("kmgt".indexOf(match[2][0].toLowerCase()) + 1),
@@ -56,7 +57,7 @@ function hit(
     author: author ? clean(author) : undefined,
     format: formats.exec(context)?.[1].toLowerCase(),
     language: /\[([a-z]{2,3})\]/i.exec(context)?.[1].toLowerCase(),
-    sizeBytes: bytes(context),
+    sizeBytes: parseSize(context),
     seeders: null,
     leechers: null,
     fileCount: 1,
@@ -303,14 +304,12 @@ export function mergeHits(
           )
         )
           primary.locations.push(location);
-      primary.first.md5 ??= other.first.md5;
       groups.delete(otherKey);
       for (const [alias, groupKey] of aliases)
         if (groupKey === otherKey) aliases.set(alias, key);
     }
     for (const alias of keys) aliases.set(alias, key);
     const previous = groups.get(key);
-    if (previous) previous.first.md5 ??= h.md5;
     if (previous) {
       if (
         previous.locations.length < 5 &&
@@ -324,7 +323,7 @@ export function mergeHits(
   return [...groups.values()]
     .slice(0, Math.max(1, Math.min(100, limit)))
     .map(({ first, locations }) => {
-      const { location: _, md5, sha256: _sha256, ...release } = first;
+      const { location: _, md5: _md5, sha256: _sha256, ...release } = first;
       const identifiers = locations
         .map((location) => Schema.decodeUnknownSync(LocationSchema)(location))
         .sort((a, b) =>
@@ -340,10 +339,7 @@ export function mergeHits(
         title: `${release.title} · ${libraries}`,
         bookTitle: release.bookTitle ?? release.title,
         sizeBytes: wholeBytes(release.sizeBytes),
-        guid: JSON.stringify({
-          locations: identifiers,
-          ...(md5 ? { md5 } : {}),
-        }),
+        guid: JSON.stringify({ locations: identifiers }),
       };
     });
 }

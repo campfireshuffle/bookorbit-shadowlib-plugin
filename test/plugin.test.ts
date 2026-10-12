@@ -119,7 +119,7 @@ test("credential JSON must bind secrets to an HTTPS origin and does not echo mal
   assert.throws(
     () =>
       credentials(
-        `{"annas":{"origin":"http://invalid.example","key":"${secret}"}}`,
+        `{"annas":{"trustedOrigins":["http://invalid.example"],"key":"${secret}"}}`,
       ),
     (e) => e instanceof Error && !e.message.includes(secret),
   );
@@ -163,7 +163,9 @@ test("502 login failure is retried and falls back without leaking a key to anoth
   const key = "fake-anna-key";
   const config = cfg(
     "annas,libgen",
-    JSON.stringify({ annas: { origin: "https://anna-login.example", key } }),
+    JSON.stringify({
+      annas: { trustedOrigins: ["https://anna-login.example"], key },
+    }),
   );
   const h = host((url) => {
     if (url.origin === config.baseUrl)
@@ -202,7 +204,7 @@ test("a successful Anna's session is reused across test/search calls", async () 
     "annas",
     JSON.stringify({
       annas: {
-        origin: "https://anna-session.example",
+        trustedOrigins: ["https://anna-session.example"],
         key: "session-test-key",
       },
     }),
@@ -227,6 +229,35 @@ test("a successful Anna's session is reused across test/search calls", async () 
     1,
   );
 });
+test("unexpected account fields fail before any credentials can leave the plugin", async () => {
+  for (const family of ["annas", "zlibrary"] as const) {
+    const config = cfg(
+      family,
+      JSON.stringify({
+        [family]: {
+          origin: "https://unexpected-account-field.example",
+          ...(family === "annas"
+            ? { key: "synthetic-restricted-key" }
+            : { userId: "42", userKey: "synthetic-restricted-key" }),
+        },
+      }),
+    );
+    const h = host(() => {
+      throw Error("Unexpected network access");
+    });
+    await assert.rejects(
+      plugin.search(q, config, h.value, new AbortController().signal),
+      (error: Error & { kind?: string }) => {
+        assert.equal(error.kind, "unauthorized");
+        assert.match(error.message, /trustedOrigins/);
+        assert(!error.message.includes("synthetic-restricted-key"));
+        return true;
+      },
+    );
+    assert.equal(h.calls.length, 0);
+  }
+});
+
 test("long Retry-After is honored by skipping retries and cooling down the host", async () => {
   const h = host(
     () =>
@@ -286,6 +317,7 @@ test("dedupe merges hashes and links, retaining formats and editions", () => {
   const result = mergeHits(hits, "ebook", "en", 20);
   assert.equal(result.length, 3);
   assert.equal(JSON.parse(result[0].guid).locations.length, 2);
+  assert.deepEqual(Object.keys(JSON.parse(result[0].guid)), ["locations"]);
   assert.equal(result[0].title, `${q.title} · Anna’s Archive, LibGen`);
   assert.equal(result[0].bookTitle, q.title);
   assert.equal(result[1].title, `${q.title} · Anna’s Archive`);
@@ -357,7 +389,9 @@ test("Anna API failure does not fall back to anonymous pages or LibGen", async (
   const key = "fake-download-key";
   const config = cfg(
     "annas,libgen",
-    JSON.stringify({ annas: { origin: "https://anna-download.example", key } }),
+    JSON.stringify({
+      annas: { trustedOrigins: ["https://anna-download.example"], key },
+    }),
   );
   const h = host((url) => {
     if (url.origin === config.baseUrl)
@@ -409,7 +443,10 @@ test("tampered release identifiers cannot cause credential forwarding", async ()
   const config = cfg(
     "annas",
     JSON.stringify({
-      annas: { origin: "https://trusted.example", key: "secret-fixture-key" },
+      annas: {
+        trustedOrigins: ["https://trusted.example"],
+        key: "secret-fixture-key",
+      },
     }),
   );
   const h = host(
@@ -473,7 +510,7 @@ test("simultaneous searches share one sign-in through the Effect semaphore", asy
     "annas",
     JSON.stringify({
       annas: {
-        origin: "https://anna-singleflight.example/",
+        trustedOrigins: ["https://anna-singleflight.example/"],
         key: "singleflight-key",
       },
     }),
@@ -507,7 +544,7 @@ test("Z-Library credentials use the encrypted field and file resolution uses its
     "zlibrary",
     JSON.stringify({
       zlibrary: {
-        origin: "https://zlibrary-fixture.example",
+        trustedOrigins: ["https://zlibrary-fixture.example"],
         email: "test@example.invalid",
         password,
       },
@@ -544,6 +581,7 @@ test("Z-Library credentials use the encrypted field and file resolution uses its
             author: q.author,
             extension: "EPUB",
             language: "English",
+            filesizeString: "2.15 MB",
           },
         ],
       });
@@ -568,14 +606,59 @@ test("Z-Library credentials use the encrypted field and file resolution uses its
   );
   assert.equal(releases[0].title, `${q.title} · Z-Library`);
   assert.equal(releases[0].bookTitle, q.title);
+  assert.equal(releases[0].sizeBytes, 2254438);
   assert.equal(result.url, "https://files.example/pride.epub");
   assert.equal(result.fileName, `${q.title}.epub`);
+  assert.equal(result.sizeBytes, 2254438);
   assert.equal(
     h.calls.filter((c) => c.url.endsWith("/eapi/user/login")).length,
     1,
   );
   assert(!h.calls.some((c) => c.url.includes("zlibrary-other.example")));
   assert(!h.logs.join("\n").includes(password));
+});
+
+test("Z-Library size metadata keeps valid whole bytes and leaves unknown sizes unset", async () => {
+  const config = cfg(
+    "zlibrary",
+    JSON.stringify({
+      zlibrary: { userId: "42", userKey: "synthetic-size-key" },
+    }),
+  );
+  const sizes = [
+    "12.5 KiB",
+    "1024 bytes",
+    undefined,
+    "unknown",
+    "-1 MB",
+    "1,234 KB",
+    "999999999999999999 GB",
+  ];
+  const h = host((url) =>
+    url.origin === config.baseUrl
+      ? new Response(directory({ zlibrary: ["https://zlibrary-size.example"] }))
+      : Response.json({
+          success: 1,
+          books: sizes.map((filesizeString, i) => ({
+            id: i + 100,
+            hash: "fixture",
+            title: q.title,
+            extension: "epub",
+            language: "English",
+            ...(filesizeString === undefined ? {} : { filesizeString }),
+          })),
+        }),
+  );
+  const releases = await plugin.search(
+    q,
+    config,
+    h.value,
+    AbortSignal.timeout(3000),
+  );
+  assert.deepEqual(
+    releases.map((release) => release.sizeBytes),
+    [12800, 1024, null, null, null, null, null],
+  );
 });
 
 test("test connection refreshes discovery and refuses a reachable but unsearchable site", async () => {
@@ -712,7 +795,7 @@ test("connection test checks an authenticated catalogue without probing its home
     "annas",
     JSON.stringify({
       annas: {
-        origin: "https://member-only-fixture.example",
+        trustedOrigins: ["https://member-only-fixture.example"],
         key: "member-fixture-key",
       },
     }),
@@ -1393,7 +1476,7 @@ test("configuration errors keep safe actionable guidance with or without a helpe
     const config = cfg(
       "annas",
       JSON.stringify({
-        annas: { origin: "http://invalid.example", key: secret },
+        annas: { trustedOrigins: ["http://invalid.example"], key: secret },
       }),
     );
     config.settings = { ...config.settings, browserHelperUrl };
@@ -1405,7 +1488,7 @@ test("configuration errors keep safe actionable guidance with or without a helpe
       (error: Error) => {
         assert.match(
           error.message,
-          /Library origin\/trustedOrigins must be HTTPS origins/,
+          /Library trustedOrigins must be HTTPS origins/,
         );
         assert(!error.message.includes(secret));
         return true;
