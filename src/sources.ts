@@ -196,7 +196,14 @@ export const searchMirror = Effect.fnUntraced(function* (
     });
   }
   if (mirror.family === "liber3") return yield* searchLiber(mirror, q);
-  if (mirror.family === "zlibrary" && accountForMirror(accounts, mirror)) {
+  if (mirror.family === "zlibrary") {
+    if (!accountForMirror(accounts, mirror))
+      return yield* Effect.fail(
+        failure(
+          "Z-Library requires account credentials for API access.",
+          "unauthorized",
+        ),
+      );
     const response = yield* authenticated(
       mirror,
       cfg,
@@ -242,9 +249,7 @@ export const searchMirror = Effect.fnUntraced(function* (
   const path =
     mirror.family === "annas"
       ? `/search?${new URLSearchParams({ q: term, ...(q.language ? { lang: q.language } : {}), ...(q.mediaKind === "audiobook" ? { content: "audiobook" } : {}) })}`
-      : mirror.family === "libgen"
-        ? `/index.php?${new URLSearchParams({ req: term, res: "50" })}`
-        : `/s/${encodeURIComponent(term)}`;
+      : `/index.php?${new URLSearchParams({ req: term, res: "50" })}`;
   const html = yield* checkedText(
     yield* authenticated(mirror, cfg, accounts, path),
   );
@@ -349,11 +354,18 @@ export const resolveLocation = Effect.fnUntraced(function* (
     return `${httpsOrigin(ipfsOrigin)}/ipfs/${location.id}`;
   }
   const account = accountForMirror(accounts, mirror);
-  if (
-    location.family === "annas" &&
-    account?.key &&
-    /^[a-f0-9]{32}$/.test(location.id)
-  ) {
+  if (location.family === "annas") {
+    if (!account?.key)
+      return yield* Effect.fail(
+        failure(
+          "Anna’s Archive requires a membership API key for downloads.",
+          "unauthorized",
+        ),
+      );
+    if (!/^[a-f0-9]{32}$/.test(location.id))
+      return yield* Effect.fail(
+        failure("Invalid Anna’s Archive file identifier."),
+      );
     const url = new URL("/dyn/api/fast_download.json", mirror.origin);
     url.searchParams.set("md5", location.id);
     url.searchParams.set("key", account.key);
@@ -372,7 +384,14 @@ export const resolveLocation = Effect.fnUntraced(function* (
       ),
     );
   }
-  if (location.family === "zlibrary" && accountForMirror(accounts, mirror)) {
+  if (location.family === "zlibrary") {
+    if (!account)
+      return yield* Effect.fail(
+        failure(
+          "Z-Library requires account credentials for downloads.",
+          "unauthorized",
+        ),
+      );
     const parts = /^\/book\/(\d+)\/([a-z0-9]+)$/i.exec(location.page ?? "");
     if (!parts) return yield* Effect.fail(failure("Invalid Z-Library record."));
     const response = yield* authenticated(

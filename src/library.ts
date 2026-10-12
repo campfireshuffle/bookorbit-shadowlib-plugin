@@ -295,8 +295,7 @@ export const resolveFile = Effect.fnUntraced(
         mirrors.some((m) => m.family === l.family && m.origin === l.origin),
     );
     for (const location of [...locations]) {
-      if (location.family !== "annas" && location.family !== "zlibrary")
-        continue;
+      if (!["annas", "zlibrary", "libgen"].includes(location.family)) continue;
       for (const mirror of mirrors
         .filter((m) => m.family === location.family)
         .sort(byPriority(location.family, accounts))) {
@@ -310,17 +309,6 @@ export const resolveFile = Effect.fnUntraced(
         )
           locations.push({ ...location, origin: mirror.origin });
       }
-    }
-    if (value.md5 && /^[a-f0-9]{32}$/.test(value.md5)) {
-      for (const m of mirrors.filter(
-        (m) => m.family === "libgen" && enabled.includes("libgen"),
-      ))
-        if (!locations.some((l) => l.origin === m.origin))
-          locations.push({
-            family: m.family,
-            origin: m.origin,
-            id: value.md5,
-          });
     }
     let last = failure("No authorized source remains for this release.");
     for (const location of locations) {

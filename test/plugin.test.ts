@@ -349,7 +349,7 @@ test("audiobook requests retain audio and exclude ebook-only files", () => {
   assert.equal(result.length, 1);
   assert.equal(result[0].format, "m4b");
 });
-test("download falls back from failed Anna's to discovered LibGen; filename is sanitized", async () => {
+test("Anna API failure does not fall back to anonymous pages or LibGen", async () => {
   const key = "fake-download-key";
   const config = cfg(
     "annas,libgen",
@@ -389,14 +389,16 @@ test("download falls back from failed Anna's to discovered LibGen; filename is s
     null,
     20,
   )[0];
-  const file = await plugin.resolveFile(
-    release,
-    config,
-    h.value,
-    AbortSignal.timeout(5000),
+  await assert.rejects(
+    plugin.resolveFile(release, config, h.value, AbortSignal.timeout(5000)),
   );
-  assert(file.url.startsWith("https://libgen-download.example/get.php?"));
-  assert(!file.fileName.includes("/"));
+  assert(
+    h.calls.every(
+      ({ url }) =>
+        new URL(url).origin === config.baseUrl ||
+        new URL(url).pathname === "/dyn/api/fast_download.json",
+    ),
+  );
   assert(!h.logs.join("\n").includes(key));
 });
 test("tampered release identifiers cannot cause credential forwarding", async () => {
@@ -1057,16 +1059,16 @@ test("Anna's file fallback reuses the directory account key on the next mirror",
 });
 
 test("browser helper clears public challenges and reuses a host-scoped session", async () => {
-  const config = cfg("zlibrary");
+  const config = cfg("annas");
   config.settings = {
-    libraries: "zlibrary",
+    libraries: "annas",
     browserHelperUrl: "https://solver.example/",
   };
   const commands: Record<string, unknown>[] = [];
   const h = host((url, init) => {
     if (url.origin === config.baseUrl)
       return new Response(
-        directory({ zlibrary: ["https://zlib-browser.example"] }),
+        directory({ annas: ["https://zlib-browser.example"] }),
       );
     if (url.hostname === "solver.example") {
       assert.equal(url.pathname, "/v1");
@@ -1346,4 +1348,46 @@ test("old selections skip removed sources without contacting them", async () => 
     plugin.search(q, config, h.value, AbortSignal.timeout(3000)),
     /Invalid library settings/,
   );
+});
+
+test("account-only download providers never request anonymous pages", async () => {
+  const { resolveLocation, searchMirror } = await import("../src/sources.js");
+  const config = cfg();
+  const h = host(() => {
+    throw Error("Unexpected network request");
+  });
+  for (const family of ["annas", "zlibrary"] as const) {
+    await assert.rejects(
+      Effect.runPromise(
+        resolveLocation(
+          {
+            family,
+            origin: "https://account-only.example",
+            id: "a".repeat(32),
+            page: "/book/123/abc",
+          },
+          config,
+          {},
+          "https://dweb.link",
+        ).pipe(Effect.provideService(Network, { host: h.value })),
+      ),
+      /requires/,
+    );
+  }
+  await assert.rejects(
+    Effect.runPromise(
+      searchMirror(
+        {
+          family: "zlibrary",
+          origin: "https://account-only.example",
+          status: "up",
+        },
+        q,
+        config,
+        {},
+      ).pipe(Effect.provideService(Network, { host: h.value })),
+    ),
+    /requires/,
+  );
+  assert.equal(h.calls.length, 0);
 });

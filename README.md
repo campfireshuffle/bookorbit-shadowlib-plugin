@@ -36,13 +36,13 @@ passwords and keys are never sent to it. Some challenges still need manual help.
 Paste JSON into the source’s **API key** field. BookOrbit encrypts it; your server
 must have `BOOK_REQUEST_ENCRYPTION_KEY` configured. Include only accounts you use.
 
-| Library                        | Credentials                                                     | API coverage                                                                                            |
-| ------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Z-Library (`zlibrary`)         | Free account: `email` and `password`, or `userId` and `userKey` | Account search and download URLs; daily account limits apply.                                           |
-| Anna’s Archive (`annas`)       | Paid membership: `key` from your account                        | Fast download URLs. Search still uses the website. [API details](https://annas-archive.gl/faq#api).     |
-| LibGen (`libgen`)              | None; leave out of account JSON                                 | Some mirrors expose JSON metadata lookup. This plugin currently uses website search and download links. |
-| Memory of the World (`memory`) | None; leave out of account JSON                                 | Public JSON search and file links.                                                                      |
-| Liber3 (`liber3`)              | None; leave out of account JSON                                 | Public catalogue gateway and IPFS file links.                                                           |
+| Library                        | Credentials                                                              | API coverage                                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Z-Library (`zlibrary`)         | Required free account: `email` and `password`, or `userId` and `userKey` | Account search and download URLs; daily account limits apply.                                           |
+| Anna’s Archive (`annas`)       | Required paid membership for downloads: `key` from your account          | Fast download URLs. Search still uses the website. [API details](https://annas-archive.gl/faq#api).     |
+| LibGen (`libgen`)              | None; leave out of account JSON                                          | Some mirrors expose JSON metadata lookup. This plugin currently uses website search and download links. |
+| Memory of the World (`memory`) | None; leave out of account JSON                                          | Public JSON search and file links.                                                                      |
+| Liber3 (`liber3`)              | None; leave out of account JSON                                          | Public catalogue gateway and IPFS file links.                                                           |
 
 For Z-Library and Anna’s Archive together:
 
@@ -94,6 +94,12 @@ Its origin must match **Browser helper URL**. Library credentials are never sent
 to the helper. A paid library account does not require a paid browser helper.
 
 ## Caveats
+
+- Anna’s downloads use only the membership API, never free/slow download pages.
+- Z-Library requires credentials and uses only its account APIs.
+- API failures do not switch to anonymous download pages or invent a LibGen fallback.
+  Mirror retries stay within the same library; deduped results can retain verified
+  locations from multiple libraries.
 
 - Public search does not guarantee anonymous downloads; some libraries require an account.
 - The browser helper loads catalogue pages. Protected file downloads may still need a browser-capable downloader.
