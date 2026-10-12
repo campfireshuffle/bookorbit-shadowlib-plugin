@@ -1,13 +1,7 @@
 # BookOrbit ShadowLib plugin
 
-Search multiple book libraries from BookOrbit and download available files
-directly into your library. ShadowLib discovers mirrors from
-[Open Slum](https://open-slum.org/), retries temporary failures, and tries another
-mirror when a source is unavailable.
-
-It searches Anna's Archive, LibGen, Z-Library, Memory of the World, Liber3, WeLib,
-and LibSTC. Results from different libraries are combined, with duplicates
-removed while keeping different formats and editions.
+This BookOrbit plugin searches and dedupes results from the libraries listed on
+[Open Slum](https://open-slum.org/).
 
 ## Install
 
@@ -18,21 +12,15 @@ removed while keeping different formats and editions.
    `https://open-slum.org` and choose the libraries to search.
 4. Leave **API key** empty to use public access, then click **Test connection**.
 
-Disable any separate Anna's-only source to avoid duplicate searches and sign-ins.
-No torrent or Usenet download client is required.
-
 ## Updates
 
 After installing this version, use **Check for updates** in BookOrbit. Enable
 **Install signed updates automatically** if you want updates applied for you.
-BookOrbit verifies each update’s hash and signature against the key pinned in
-your installed copy.
 
 ## Optional accounts
 
-For Anna's member downloads or authenticated Z-Library access, enter JSON in the
-source's **API key** field. BookOrbit encrypts this field; its server must have
-`BOOK_REQUEST_ENCRYPTION_KEY` configured. Include only the accounts you use:
+Enter JSON in the source's **API key** field. BookOrbit encrypts this field (you must have
+`BOOK_REQUEST_ENCRYPTION_KEY` configured). Include only the accounts you use:
 
 ```json
 {
@@ -48,27 +36,12 @@ source's **API key** field. BookOrbit encrypts this field; its server must have
 }
 ```
 
-Replace each `origin` with the HTTPS address you trust for that account. The
-plugin sends credentials only to that address; discovering a new mirror does
-not give it access to your credentials. Z-Library also accepts `userId` and
-`userKey` instead of email and password.
 
-Anna's download API requires the account key in the request URL, so server or
-proxy URL logs may retain it.
+## Caveats
 
-## What to expect
-
-- Browser checks can block access even from a residential IP. The plugin detects
-  blocks and tries alternatives; it does not solve interactive challenges.
-- WeLib and LibSTC support is experimental. Source availability and search
-  results depend on each library.
-- Ebooks and individually indexed audiobook files are supported. Audiobooks
-  packaged as archives may not be recognized.
-- Sci-Hub and Anna's software archive are excluded.
-- Automatic downloads use BookOrbit's Requests automation and Book Dock. The
-  plugin does not follow bestseller lists.
-
-**Test connection** refreshes the mirror list and checks catalogue searches. If
+- Browser checks can block access. The plugin detects
+  blocks and tries some alternatives.
+- **Test connection** refreshes the mirror list and checks catalogue searches. If
 a search fails, BookOrbit's logs show which sources were unavailable.
 
 ## Development
