@@ -851,3 +851,207 @@ test("public redirects discard cookies across origins and remain bounded", async
     /unsafe redirect/,
   );
 });
+
+test("directory accounts reuse credentials across mirrors while sessions stay per host", async () => {
+  const key = "shared-fixture-key";
+  const config = cfg("annas", JSON.stringify({ annas: { key } }));
+  const h = host((url, init) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          annas: [
+            "https://mirror-first.example",
+            "https://mirror-second.example",
+          ],
+        }),
+      );
+    if (url.pathname === "/account/") {
+      assert.equal(new URLSearchParams(init?.body).get("key"), key);
+      return new Response("signed in", {
+        headers: { "Set-Cookie": `aa_session=${url.hostname}; Secure` },
+      });
+    }
+    assert.equal(init?.headers?.Cookie, `aa_session=${url.hostname}`);
+    return new Response(
+      url.hostname === "mirror-first.example" ? "No results" : annaHtml(),
+    );
+  });
+  for (let i = 0; i < 2; i++)
+    assert.equal(
+      (await plugin.search(q, config, h.value, new AbortController().signal))
+        .length,
+      1,
+    );
+  assert.equal(
+    h.calls.filter((c) => new URL(c.url).pathname === "/account/").length,
+    2,
+  );
+  assert(!h.logs.join("\n").includes(key));
+});
+
+test("trustedOrigins replaces discovery defaults, including an empty override", async () => {
+  for (const trustedOrigins of [["https://manual-member.example"], []]) {
+    const config = cfg(
+      "annas",
+      JSON.stringify({ annas: { key: "override-fixture", trustedOrigins } }),
+    );
+    const h = host((url, init) => {
+      if (url.origin === config.baseUrl)
+        return new Response(
+          directory({ annas: ["https://public-only.example"] }),
+        );
+      if (url.pathname === "/account/") {
+        assert.equal(url.origin, "https://manual-member.example");
+        return new Response("signed in", {
+          headers: { "Set-Cookie": "aa_session=manual; Secure" },
+        });
+      }
+      if (url.origin === "https://public-only.example")
+        assert.equal(init?.headers?.Cookie, undefined);
+      return new Response(annaHtml());
+    });
+    assert.equal(
+      (await plugin.search(q, config, h.value, new AbortController().signal))
+        .length,
+      1,
+    );
+    assert.equal(
+      h.calls.filter((c) => new URL(c.url).pathname === "/account/").length,
+      trustedOrigins.length,
+    );
+  }
+  assert.throws(
+    () =>
+      credentials(
+        '{"zlibrary":{"password":"synthetic","trustedOrigins":["http://unsafe.example"]}}',
+      ),
+    /HTTPS origins/,
+  );
+});
+
+test("directory refresh authorizes new family mirrors and revokes removed ones", async () => {
+  const config = cfg(
+    "annas",
+    JSON.stringify({ annas: { key: "refresh-fixture" } }),
+  );
+  let current = "https://old-directory-mirror.example";
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(directory({ annas: [current] }));
+    if (url.pathname === "/account/")
+      return new Response("signed in", {
+        headers: { "Set-Cookie": `aa_session=${url.hostname}; Secure` },
+      });
+    return new Response(annaHtml());
+  });
+  const old = (
+    await plugin.search(q, config, h.value, new AbortController().signal)
+  )[0];
+  current = "https://new-directory-mirror.example";
+  assert.equal((await plugin.test(config, h.value)).success, true);
+  const before = h.calls.length;
+  await assert.rejects(
+    plugin.resolveFile(old, config, h.value, new AbortController().signal),
+    /No authorized source/,
+  );
+  assert.equal(h.calls.length, before);
+  assert(h.calls.some((c) => c.url === current + "/account/"));
+});
+
+test("Z-Library directory account uses the API on mirrors without a pinned origin", async () => {
+  const config = cfg(
+    "annas,zlibrary",
+    JSON.stringify({
+      zlibrary: { userId: "42", userKey: "shared-session-fixture" },
+    }),
+  );
+  const h = host((url, init) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          zlibrary: ["https://z-first.example", "https://z-second.example"],
+          annas: ["https://other-family.example"],
+        }),
+      );
+    if (url.hostname === "other-family.example")
+      return new Response(annaHtml());
+    assert.equal(init?.headers?.["remix-userkey"], "shared-session-fixture");
+    return Response.json({
+      success: 1,
+      books:
+        url.hostname === "z-first.example"
+          ? []
+          : [
+              {
+                id: 12,
+                hash: "abc",
+                title: q.title,
+                author: q.author,
+                extension: "EPUB",
+                language: "english",
+              },
+            ],
+    });
+  });
+  assert.equal(
+    (await plugin.search(q, config, h.value, new AbortController().signal))[0]
+      .format,
+    "epub",
+  );
+  const others = h.calls.filter(
+    (c) => new URL(c.url).hostname === "other-family.example",
+  );
+  assert.equal(others.length, 1);
+  for (const call of others) {
+    assert.equal(call.init?.headers?.Cookie, undefined);
+    assert.equal(call.init?.headers?.["remix-userkey"], undefined);
+    assert.equal(call.init?.body, undefined);
+  }
+  assert.equal(
+    h.calls.filter((c) => c.url.endsWith("/eapi/book/search")).length,
+    2,
+  );
+});
+
+test("Anna's file fallback reuses the directory account key on the next mirror", async () => {
+  const config = cfg(
+    "annas",
+    JSON.stringify({ annas: { key: "download-shared-fixture" } }),
+  );
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          annas: [
+            "https://download-first.example",
+            "https://download-second.example",
+          ],
+        }),
+      );
+    if (url.pathname === "/account/")
+      return new Response("signed in", {
+        headers: { "Set-Cookie": "aa_session=synthetic; Secure" },
+      });
+    if (url.pathname === "/search") return new Response(annaHtml());
+    assert.equal(url.searchParams.get("key"), "download-shared-fixture");
+    return Response.json(
+      url.hostname === "download-first.example"
+        ? { error: "unavailable" }
+        : { download_url: "https://files.example/fallback.epub" },
+    );
+  });
+  const release = (
+    await plugin.search(q, config, h.value, new AbortController().signal)
+  )[0];
+  assert.equal(
+    (
+      await plugin.resolveFile(
+        release,
+        config,
+        h.value,
+        new AbortController().signal,
+      )
+    ).url,
+    "https://files.example/fallback.epub",
+  );
+});

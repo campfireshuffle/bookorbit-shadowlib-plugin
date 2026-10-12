@@ -37,21 +37,29 @@ source's **API key** field. BookOrbit encrypts this field; its server must have
 ```json
 {
   "annas": {
-    "origin": "https://YOUR-VERIFIED-ANNA-HOST",
     "key": "YOUR-ANNA-ACCOUNT-KEY"
   },
   "zlibrary": {
-    "origin": "https://YOUR-VERIFIED-ZLIB-HOST",
     "email": "YOUR-EMAIL",
     "password": "YOUR-PASSWORD"
   }
 }
 ```
 
-Replace each `origin` with the HTTPS address you trust for that account. The
-plugin sends credentials only to that address; discovering a new mirror does
-not give it access to your credentials. Z-Library also accepts `userId` and
+Each account is reused across mirrors listed by Open Slum for that library.
+Session cookies stay separate for each host. Z-Library also accepts `userId` and
 `userKey` instead of email and password.
+
+To restrict an account, add `"trustedOrigins": ["https://YOUR-TRUSTED-HOST"]` to
+its JSON object. This replaces the directory default; an empty list disables
+credential sharing. Explicit origins can also add mirrors missing from the
+directory. All entries must be HTTPS origins without paths.
+
+Existing configurations with `origin` alone stay pinned to that address. Remove
+`origin` to use directory defaults, or add `trustedOrigins` and keep `origin` as
+your preferred mirror. Directory defaults trust Open Slum to identify mirrors
+that may receive your account credentials; authenticated redirects never forward
+them to another host.
 
 Anna's download API requires the account key in the request URL, so server or
 proxy URL logs may retain it.

@@ -17,6 +17,7 @@ import {
 } from "./catalogues.js";
 import {
   failure,
+  accountForMirror,
   httpsOrigin,
   type Credentials,
   type Mirror,
@@ -47,14 +48,8 @@ const createSession = Effect.fnUntraced(function* (
   cfg: PluginIndexerConfig,
   accounts: Credentials,
 ) {
-  const account =
-    mirror.family === "annas"
-      ? accounts.annas
-      : mirror.family === "zlibrary"
-        ? accounts.zlibrary
-        : undefined;
-  if (!account || httpsOrigin(account.origin) !== mirror.origin)
-    return {} as Record<string, string>;
+  const account = accountForMirror(accounts, mirror);
+  if (!account) return {} as Record<string, string>;
   const now = yield* Clock.currentTimeMillis;
   const cached = sessions.get(cacheKey(cfg, mirror.origin));
   if (cached && cached.credential === cfg.credential && cached.until > now)
@@ -201,11 +196,7 @@ export const searchMirror = Effect.fnUntraced(function* (
     });
   }
   if (mirror.family === "liber3") return yield* searchLiber(mirror, q);
-  if (
-    mirror.family === "zlibrary" &&
-    accounts.zlibrary &&
-    httpsOrigin(accounts.zlibrary.origin) === mirror.origin
-  ) {
+  if (mirror.family === "zlibrary" && accountForMirror(accounts, mirror)) {
     const response = yield* authenticated(
       mirror,
       cfg,
@@ -356,15 +347,15 @@ export const resolveLocation = Effect.fnUntraced(function* (
       return yield* Effect.fail(failure("Invalid IPFS content identifier."));
     return `${httpsOrigin(ipfsOrigin)}/ipfs/${location.id}`;
   }
+  const account = accountForMirror(accounts, mirror);
   if (
     location.family === "annas" &&
-    accounts.annas?.key &&
-    httpsOrigin(accounts.annas.origin) === mirror.origin &&
+    account?.key &&
     /^[a-f0-9]{32}$/.test(location.id)
   ) {
     const url = new URL("/dyn/api/fast_download.json", mirror.origin);
     url.searchParams.set("md5", location.id);
-    url.searchParams.set("key", accounts.annas.key);
+    url.searchParams.set("key", account.key);
     const result = yield* decode(
       AnnaDownload,
       yield* json(yield* request(url.href)),
@@ -380,11 +371,7 @@ export const resolveLocation = Effect.fnUntraced(function* (
       ),
     );
   }
-  if (
-    location.family === "zlibrary" &&
-    accounts.zlibrary &&
-    httpsOrigin(accounts.zlibrary.origin) === mirror.origin
-  ) {
+  if (location.family === "zlibrary" && accountForMirror(accounts, mirror)) {
     const parts = /^\/book\/(\d+)\/([a-z0-9]+)$/i.exec(location.page ?? "");
     if (!parts) return yield* Effect.fail(failure("Invalid Z-Library record."));
     const response = yield* authenticated(

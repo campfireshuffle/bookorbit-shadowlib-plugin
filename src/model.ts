@@ -19,7 +19,8 @@ export const Family = Schema.Literals([
 ]);
 export type Family = typeof Family.Type;
 const Account = Schema.Struct({
-  origin: Schema.String,
+  origin: Schema.optionalKey(Schema.String),
+  trustedOrigins: Schema.optionalKey(Schema.Array(Schema.String)),
   key: Schema.optionalKey(Schema.String),
   email: Schema.optionalKey(Schema.String),
   password: Schema.optionalKey(Schema.String),
@@ -30,7 +31,9 @@ export const Credentials = Schema.Struct({
   annas: Schema.optionalKey(Account),
   zlibrary: Schema.optionalKey(Account),
 });
-export type Credentials = typeof Credentials.Type;
+export type Credentials = {
+  -readonly [K in keyof typeof Credentials.Type]: (typeof Credentials.Type)[K];
+};
 export type Mirror = { family: Family; origin: string; status: string };
 export const MirrorSchema = Schema.Struct({
   family: Family,
@@ -79,27 +82,28 @@ export function credentials(input: string | null): Credentials {
     const result = Schema.decodeUnknownSync(Credentials, {
       onExcessProperty: "error",
     })(JSON.parse(input));
-    return {
-      ...(result.annas
-        ? {
-            annas: {
-              ...result.annas,
-              origin: httpsOrigin(result.annas.origin),
-            },
-          }
-        : {}),
-      ...(result.zlibrary
-        ? {
-            zlibrary: {
-              ...result.zlibrary,
-              origin: httpsOrigin(result.zlibrary.origin),
-            },
-          }
-        : {}),
-    };
+    const normalized: Credentials = {};
+    for (const family of ["annas", "zlibrary"] as const) {
+      const account = result[family];
+      if (account)
+        normalized[family] = {
+          ...account,
+          ...(account.origin !== undefined
+            ? { origin: httpsOrigin(account.origin) }
+            : {}),
+          ...(account.trustedOrigins !== undefined
+            ? {
+                trustedOrigins: [
+                  ...new Set(account.trustedOrigins.map(httpsOrigin)),
+                ],
+              }
+            : {}),
+        };
+    }
+    return normalized;
   } catch {
     throw failure(
-      "Credential must be JSON containing annas/zlibrary accounts with an explicit HTTPS origin.",
+      "Credential must be JSON containing annas/zlibrary accounts; origin and trustedOrigins must contain HTTPS origins.",
       "unauthorized",
     );
   }
@@ -110,3 +114,14 @@ export const stringSetting = (
   fallback: string,
 ) =>
   typeof settings?.[key] === "string" ? (settings[key] as string) : fallback;
+
+// prepare resolves directory defaults once; every credential use checks the resulting list.
+export function accountForMirror(accounts: Credentials, mirror: Mirror) {
+  const account =
+    mirror.family === "annas"
+      ? accounts.annas
+      : mirror.family === "zlibrary"
+        ? accounts.zlibrary
+        : undefined;
+  return account?.trustedOrigins?.includes(mirror.origin) ? account : undefined;
+}

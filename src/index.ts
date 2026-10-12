@@ -13,6 +13,7 @@ import {
 } from "./catalogues.js";
 import {
   credentials,
+  accountForMirror,
   failure,
   Family,
   httpsOrigin,
@@ -57,17 +58,10 @@ const configuredMirrors = (
   const all = [...mirrors];
   for (const family of ["annas", "zlibrary"] as const) {
     const account = accounts[family];
-    if (
-      account &&
-      !all.some(
-        (m) => m.family === family && m.origin === httpsOrigin(account.origin),
-      )
-    )
-      all.push({
-        family,
-        origin: httpsOrigin(account.origin),
-        status: "unknown",
-      });
+    for (const origin of account?.trustedOrigins ?? []) {
+      if (!all.some((m) => m.family === family && m.origin === origin))
+        all.push({ family, origin, status: "unknown" });
+    }
   }
   return all;
 };
@@ -79,12 +73,13 @@ const byPriority =
         : family === "zlibrary"
           ? accounts.zlibrary?.origin
           : undefined;
-    const rank = (m: Mirror) =>
-      m.origin === pinned
-        ? -1
-        : ({ up: 0, protected: 1, degraded: 2, unknown: 3, down: 4 }[
-            m.status
-          ] ?? 3);
+    const rank = (m: Mirror) => {
+      if (m.origin === pinned && accountForMirror(accounts, m)) return -1;
+      const status =
+        { up: 0, protected: 1, degraded: 2, unknown: 3, down: 4 }[m.status] ??
+        3;
+      return status + (accountForMirror(accounts, m) ? 0 : 5);
+    };
     return rank(a) - rank(b);
   };
 const searchAll = Effect.fnUntraced(function* (
@@ -240,10 +235,22 @@ const prepare = Effect.fnUntraced(function* (
     try: () => credentials(cfg.credential),
     catch: () => failure("Invalid encrypted credential JSON.", "unauthorized"),
   });
-  const mirrors = configuredMirrors(
-    yield* discover(cfg.baseUrl, refresh),
-    accounts,
-  );
+  const discovered = yield* discover(cfg.baseUrl, refresh);
+  for (const family of ["annas", "zlibrary"] as const) {
+    const account = accounts[family];
+    if (account)
+      accounts[family] = {
+        ...account,
+        trustedOrigins:
+          account.trustedOrigins ??
+          (account.origin
+            ? [account.origin]
+            : discovered
+                .filter((m) => m.family === family)
+                .map((m) => m.origin)),
+      };
+  }
+  const mirrors = configuredMirrors(discovered, accounts);
   return { accounts, mirrors };
 });
 
@@ -359,6 +366,23 @@ export default {
             enabled.includes(l.family) &&
             mirrors.some((m) => m.family === l.family && m.origin === l.origin),
         );
+        for (const location of [...locations]) {
+          if (location.family !== "annas" && location.family !== "zlibrary")
+            continue;
+          for (const mirror of mirrors
+            .filter((m) => m.family === location.family)
+            .sort(byPriority(location.family, accounts))) {
+            if (
+              !locations.some(
+                (l) =>
+                  l.family === mirror.family &&
+                  l.origin === mirror.origin &&
+                  l.id === location.id,
+              )
+            )
+              locations.push({ ...location, origin: mirror.origin });
+          }
+        }
         if (value.md5 && /^[a-f0-9]{32}$/.test(value.md5)) {
           for (const m of mirrors.filter(
             (m) => m.family === "libgen" && enabled.includes("libgen"),
