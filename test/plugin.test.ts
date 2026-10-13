@@ -2291,3 +2291,36 @@ test("audio ZIP classification rejects ambiguous archives and preserves ebook fo
   assert.equal(audio[0].format, "zip");
   assert.equal(mergeHits(hits, "ebook", null, 20).length, 3);
 });
+
+test("narrator metadata identifies audio archives without classifying ebook files", () => {
+  const mirror = {
+    family: "annas" as const,
+    origin: "https://anna-narrator.example",
+    status: "up",
+  };
+  const card = (format: string, author: string) =>
+    `<div class="flex pt-3"><a class="js-vim-focus" href="/md5/${"a".repeat(32)}">The Prophet</a><a href="/search?q=author"><span class="icon-user-edit"></span>${author}</a><a>Audible, 2021</a><div>English [en] · ${format} · 84.0 MB</div></div>`;
+  const author = "Written by: Kahlil Gibran Narrated by: Riz Ahmed";
+  const audio = mergeHits(
+    parseHtml(card("ZIP", author), mirror),
+    "audiobook",
+    null,
+    20,
+  );
+  assert.equal(audio.length, 1);
+  assert.equal(audio[0].format, "zip");
+  assert.equal(
+    mergeHits(parseHtml(card("PDF", author), mirror), "audiobook", null, 20)
+      .length,
+    0,
+  );
+  assert.equal(
+    mergeHits(
+      parseHtml(card("ZIP", "Kahlil Gibran"), mirror),
+      "audiobook",
+      null,
+      20,
+    ).length,
+    0,
+  );
+});
