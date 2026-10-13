@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 import { withLock } from "./locks.js";
 import {
   AnnaDownload,
+  isAudioArchive,
   downloadLink,
   LiberResponse,
   parseHtml,
@@ -241,6 +242,10 @@ export const searchMirror = Effect.fnUntraced(function* (
       bookTitle: book.title,
       author: book.author,
       format: book.extension.toLowerCase(),
+      audioArchive: isAudioArchive(
+        book.extension,
+        `${book.title} ${book.publisher ?? ""}, ${book.edition ?? ""}`,
+      ),
       language:
         book.language?.trim().toLowerCase() === "english"
           ? "en"
@@ -260,7 +265,7 @@ export const searchMirror = Effect.fnUntraced(function* (
   }
   const path =
     mirror.family === "annas"
-      ? `/search?${new URLSearchParams({ q: term, ...(q.language ? { lang: q.language } : {}), ...(q.mediaKind === "audiobook" ? { content: "audiobook" } : {}) })}`
+      ? `/search?${new URLSearchParams({ q: term, ...(q.language ? { lang: q.language } : {}) })}`
       : `/index.php?${new URLSearchParams({ req: term, res: "50" })}`;
   const { browser } = yield* Network;
   const html = yield* checkedText(
@@ -339,6 +344,7 @@ const searchLiber = Effect.fnUntraced(function* (
       bookTitle: row.title,
       author: row.author,
       format: row.extension?.toLowerCase(),
+      audioArchive: isAudioArchive(row.extension, row.title),
       language: row.language,
       sizeBytes: Number(row.filesize) || null,
       seeders: null,

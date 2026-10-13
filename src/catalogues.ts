@@ -20,15 +20,27 @@ export type Hit = Omit<PluginReleaseCandidate, "guid"> & {
   location: Location;
   md5?: string;
   sha256?: string;
+  audioArchive?: boolean;
 };
 export const GuidSchema = Schema.Struct({
   locations: Schema.Array(LocationSchema),
 });
 const extensions =
-  "epub|pdf|mobi|azw3|fb2|djvu|cbz|cbr|mp3|m4b|m4a|flac|ogg|opus|zip";
+  "epub|pdf|mobi|azw3|fb2|djvu|cbz|cbr|mp3|m4b|m4a|flac|ogg|opus|zip|rar|7z";
 const formats = new RegExp(`\\b(${extensions})\\b`, "i");
 const bookFile = new RegExp(`\\.(?:${extensions})(?:$|[?#])`, "i");
 const audioFormats = new Set(["mp3", "m4b", "m4a", "flac", "ogg", "opus"]);
+// Archives need positive catalogue evidence; their extension alone says nothing.
+export function isAudioArchive(
+  format: string | undefined,
+  metadata: string,
+): boolean {
+  return (
+    /^(zip|rar|7z)$/i.test(format ?? "") &&
+    (/\bAudio\s*[,;]\s*(?:Unabridged|Abridged)\b/i.test(metadata) ||
+      /[([]\s*audiobook\s*[)\]]/i.test(metadata))
+  );
+}
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 function wholeBytes(value: number | null): number | null {
   if (value === null) return null;
@@ -50,12 +62,14 @@ function hit(
   location: Location,
   author?: string,
 ): Hit {
+  const format = formats.exec(context)?.[1].toLowerCase();
   return {
     location,
+    audioArchive: isAudioArchive(format, `${title} ${context}`),
     title: clean(title),
     bookTitle: clean(title),
     author: author ? clean(author) : undefined,
-    format: formats.exec(context)?.[1].toLowerCase(),
+    format,
     language: /\[([a-z]{2,3})\]/i.exec(context)?.[1].toLowerCase(),
     sizeBytes: parseSize(context),
     seeders: null,
@@ -87,6 +101,10 @@ export function parseHtml(html: string, mirror: Mirror): Hit[] {
       );
       r.md5 = md5;
       r.format = clean(cells.eq(7).text()).toLowerCase();
+      r.audioArchive = isAudioArchive(
+        r.format,
+        `${link.text()} ${cells.eq(2).text()}`,
+      );
       const language = clean(cells.eq(4).text()).toLowerCase();
       r.language =
         language === "english"
@@ -184,6 +202,10 @@ export function parseMemory(body: unknown, mirror: Mirror): Hit[] {
         bookTitle: book.title,
         author: book.authors.join("; "),
         format: file.format.toLowerCase(),
+        audioArchive: isAudioArchive(
+          file.format,
+          `${book.title} ${file.file_name}`,
+        ),
         language: book.languages?.[0] === "eng" ? "en" : book.languages?.[0],
         sizeBytes: file.size,
         seeders: null,
@@ -211,6 +233,8 @@ export const ZSearch = Schema.Struct({
         title: Schema.String,
         author: Schema.optionalKey(Schema.String),
         extension: Schema.String,
+        publisher: Schema.optionalKey(Schema.NullOr(Schema.String)),
+        edition: Schema.optionalKey(Schema.NullOr(Schema.String)),
         language: Schema.optionalKey(Schema.String),
         filesizeString: Schema.optionalKey(Schema.String),
         md5: Schema.optionalKey(Schema.String),
@@ -261,9 +285,9 @@ export function mergeHits(
   const groups = new Map<string, { first: Hit; locations: Location[] }>();
   const aliases = new Map<string, string>();
   for (const h of hits) {
-    if (media === "audiobook" && (!h.format || !audioFormats.has(h.format)))
-      continue;
-    if (media === "ebook" && h.format && audioFormats.has(h.format)) continue;
+    const audio = !!h.audioArchive || audioFormats.has(h.format ?? "");
+    if (media === "audiobook" && !audio) continue;
+    if (media === "ebook" && audio) continue;
     if (language && h.language && h.language !== language) continue;
     const keys = [
       `record:${h.location.family}:${h.location.id}:${h.format ?? "unknown"}`,
@@ -323,7 +347,13 @@ export function mergeHits(
   return [...groups.values()]
     .slice(0, Math.max(1, Math.min(100, limit)))
     .map(({ first, locations }) => {
-      const { location: _, md5: _md5, sha256: _sha256, ...release } = first;
+      const {
+        location: _,
+        md5: _md5,
+        sha256: _sha256,
+        audioArchive: _audio,
+        ...release
+      } = first;
       const identifiers = locations
         .map((location) => Schema.decodeUnknownSync(LocationSchema)(location))
         .sort((a, b) =>

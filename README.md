@@ -4,6 +4,7 @@ Search books and audiobooks across Z-Library, Anna’s Archive, LibGen,
 Memory of the World, and Liber3. The plugin finds mirrors through
 [Open Slum](https://open-slum.org/) and merges duplicate files while keeping
 separate formats. Result titles show which libraries supplied each file.
+BookOrbit automatically unpacks audiobook ZIP archives.
 
 ## Install
 

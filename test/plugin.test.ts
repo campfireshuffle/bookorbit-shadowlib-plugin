@@ -2134,3 +2134,160 @@ test("connection test bounds a browser helper that never responds", async () => 
     ),
   );
 });
+
+test("audiobook archive spike preserves ZIP handoff for each provider", async () => {
+  const title = "Beastie Boys Book";
+  const md5 = "7".repeat(32);
+  const cid = "Qm" + "a".repeat(44);
+  for (const family of [
+    "annas",
+    "zlibrary",
+    "libgen",
+    "memory",
+    "liber3",
+  ] as const) {
+    const origin = `https://${family === "memory" ? "library.memoryoftheworld" : family}-audio.example`;
+    const config = cfg(
+      family,
+      family === "annas" || family === "zlibrary"
+        ? JSON.stringify({
+            [family]: {
+              trustedOrigins: [origin],
+              ...(family === "annas"
+                ? { key: "fixture-key" }
+                : family === "zlibrary"
+                  ? { userId: "42", userKey: "fixture-session" }
+                  : {}),
+            },
+          })
+        : null,
+    );
+    const h = host((url) => {
+      if (url.origin === config.baseUrl)
+        return new Response(
+          directory({
+            [family === "memory" || family === "liber3" ? "other" : family]: [
+              origin,
+            ],
+          }),
+        );
+      if (family === "annas") {
+        if (url.pathname === "/account/")
+          return new Response("signed in", {
+            headers: { "Set-Cookie": "aa_session=fixture; Secure" },
+          });
+        if (url.pathname.startsWith("/search")) {
+          assert(!url.searchParams.has("content"));
+          return new Response(
+            `<div class="flex pt-3"><a class="js-vim-focus" href="/md5/${md5}">${title}</a><a>Random House Audio, Unabridged, 2018</a><div>[en] · ZIP · 358 MB</div></div>`,
+          );
+        }
+        assert.equal(url.pathname, "/dyn/api/fast_download.json");
+        return Response.json({
+          download_url: "https://files.example/audio.zip",
+        });
+      }
+      if (family === "zlibrary") {
+        if (url.pathname === "/eapi/book/search")
+          return Response.json({
+            success: 1,
+            books: [
+              {
+                id: 5219044,
+                hash: "f5b5ef",
+                title,
+                extension: "zip",
+                publisher: "Random House Audio",
+                edition: "Unabridged",
+                filesizeString: "341.45 MB",
+              },
+            ],
+          });
+        assert.equal(url.pathname, "/eapi/book/5219044/f5b5ef/file");
+        return Response.json({
+          success: 1,
+          file: { downloadLink: "https://files.example/audio.zip" },
+        });
+      }
+      if (family === "libgen") {
+        if (url.pathname === "/ads.php")
+          return new Response(
+            '<a download="audio.zip" href="https://files.example/audio.zip">Download</a>',
+          );
+        return new Response(
+          libgenHtml(md5)
+            .replace(q.title, `${title} (Audiobook)`)
+            .replace("<td>epub</td>", "<td>zip</td>"),
+        );
+      }
+      if (family === "memory") {
+        const body = memoryBody("zip");
+        body._items[0].title = `${title} (Audiobook)`;
+        return Response.json(body);
+      }
+      if (url.pathname === "/")
+        return new Response('<script type="module" src="./app.js"></script>');
+      if (url.pathname === "/app.js")
+        return new Response('const GATEWAY="https://gateway-audio.example";');
+      return Response.json({
+        result: [
+          {
+            row: Object.fromEntries(
+              Object.entries({
+                ipfs_cid: cid,
+                title: `${title} (Audiobook)`,
+                extension: "zip",
+                language: "en",
+                filesize: "100",
+              }).map(([key, value]) => [
+                key,
+                { value, column_value_type: "StringColumn" },
+              ]),
+            ),
+          },
+        ],
+      });
+    });
+    const releases = await plugin.search(
+      { ...q, title, author: null, mediaKind: "audiobook" },
+      config,
+      h.value,
+      AbortSignal.timeout(3000),
+    );
+    assert.equal(releases.length, 1, family);
+    assert.equal(releases[0].format, "zip", family);
+    assert(!("audioArchive" in releases[0]), family);
+    const file = await plugin.resolveFile(
+      releases[0],
+      config,
+      h.value,
+      AbortSignal.timeout(3000),
+    );
+    assert(file.fileName.endsWith(".zip"), family);
+    assert.equal(new URL(file.url).protocol, "https:", family);
+  }
+});
+
+test("audio ZIP classification rejects ambiguous archives and preserves ebook formats", () => {
+  const mirror = {
+    family: "annas" as const,
+    origin: "https://anna-audio.example",
+    status: "up",
+  };
+  const hits = [
+    ...parseHtml(
+      annaHtml("1".repeat(32), "Beastie Boys Book (Audiobook)", "zip"),
+      mirror,
+    ),
+    ...parseHtml(annaHtml("2".repeat(32), "Beastie Boys Book", "zip"), mirror),
+    ...parseHtml(
+      annaHtml("3".repeat(32), "From Plato to Audiobooks", "pdf"),
+      mirror,
+    ),
+    ...parseHtml(annaHtml("4".repeat(32), "Beastie Boys Book", "epub"), mirror),
+  ];
+  const audio = mergeHits(hits, "audiobook", null, 20);
+  assert.equal(audio.length, 1);
+  assert.equal(audio[0].format, "zip");
+  assert.equal(mergeHits(hits, "ebook", null, 20).length, 3);
+});
