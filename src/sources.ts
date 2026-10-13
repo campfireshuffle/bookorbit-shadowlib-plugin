@@ -245,6 +245,7 @@ export const searchMirror = Effect.fnUntraced(function* (
       audioArchive: isAudioArchive(
         book.extension,
         `${book.title} ${book.publisher ?? ""}, ${book.edition ?? ""}`,
+        book.author,
       ),
       language:
         book.language?.trim().toLowerCase() === "english"
@@ -344,7 +345,7 @@ const searchLiber = Effect.fnUntraced(function* (
       bookTitle: row.title,
       author: row.author,
       format: row.extension?.toLowerCase(),
-      audioArchive: isAudioArchive(row.extension, row.title),
+      audioArchive: isAudioArchive(row.extension, row.title, row.author),
       language: row.language,
       sizeBytes: Number(row.filesize) || null,
       seeders: null,

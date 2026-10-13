@@ -34,11 +34,13 @@ const audioFormats = new Set(["mp3", "m4b", "m4a", "flac", "ogg", "opus"]);
 export function isAudioArchive(
   format: string | undefined,
   metadata: string,
+  author?: string,
 ): boolean {
   return (
     /^(zip|rar|7z)$/i.test(format ?? "") &&
     (/\bAudio\s*[,;]\s*(?:Unabridged|Abridged)\b/i.test(metadata) ||
-      /[([]\s*audiobook\s*[)\]]/i.test(metadata))
+      /[([]\s*audiobook\s*[)\]]/i.test(metadata) ||
+      /\bNarrated\s+by\s*:\s*\S/i.test(author ?? ""))
   );
 }
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -65,7 +67,7 @@ function hit(
   const format = formats.exec(context)?.[1].toLowerCase();
   return {
     location,
-    audioArchive: isAudioArchive(format, `${title} ${context}`),
+    audioArchive: isAudioArchive(format, `${title} ${context}`, author),
     title: clean(title),
     bookTitle: clean(title),
     author: author ? clean(author) : undefined,
@@ -104,6 +106,7 @@ export function parseHtml(html: string, mirror: Mirror): Hit[] {
       r.audioArchive = isAudioArchive(
         r.format,
         `${link.text()} ${cells.eq(2).text()}`,
+        cells.eq(1).text(),
       );
       const language = clean(cells.eq(4).text()).toLowerCase();
       r.language =
@@ -205,6 +208,7 @@ export function parseMemory(body: unknown, mirror: Mirror): Hit[] {
         audioArchive: isAudioArchive(
           file.format,
           `${book.title} ${file.file_name}`,
+          book.authors.join("; "),
         ),
         language: book.languages?.[0] === "eng" ? "en" : book.languages?.[0],
         sizeBytes: file.size,
