@@ -6,6 +6,7 @@ import { discover } from "./discovery.js";
 import {
   GuidSchema,
   mergeHits,
+  isSupportedFormat,
   type Hit,
   type Location,
 } from "./catalogues.js";
@@ -17,6 +18,7 @@ import {
   Family,
   httpsOrigin,
   httpsUrl,
+  downloadUrl,
   SourceError,
   stringSetting,
   type Credentials,
@@ -306,6 +308,12 @@ export const test = Effect.fnUntraced(
 );
 export const resolveFile = Effect.fnUntraced(
   function* (release: PluginReleaseCandidate, cfg: PluginIndexerConfig) {
+    if (!isSupportedFormat(release.format))
+      return yield* Effect.fail(
+        failure(
+          "This release has no supported book or audiobook format. Search again.",
+        ),
+      );
     const { host } = yield* Network;
     const { accounts, mirrors, browser, enabled, ipfsOrigin } =
       yield* prepare(cfg);
@@ -365,7 +373,7 @@ export const resolveFile = Effect.fnUntraced(
       }
       const destination = yield* Effect.try({
         try: () => {
-          return httpsUrl(result.success);
+          return downloadUrl(result.success);
         },
         catch: () =>
           failure("Source returned an invalid or unsafe download URL."),
@@ -374,9 +382,7 @@ export const resolveFile = Effect.fnUntraced(
         last = destination.failure;
         continue;
       }
-      const format = (release.format ?? "epub")
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "");
+      const format = release.format.toLowerCase();
       const title =
         (release.bookTitle ?? release.title)
           .replace(/[\x00-\x1f\x7f/\\:*?"<>|]/g, "_")

@@ -92,6 +92,16 @@ export function httpsUrl(input: string, base?: string): URL {
     throw failure("Use a valid HTTPS URL without user information.");
   }
 }
+export function downloadUrl(input: string, base?: string): URL {
+  const url = httpsUrl(input, base);
+  if (
+    /\.(exe|scr|com|msi|bat|cmd|ps1|lnk|vbs|js|sh)[. ]*$/i.test(
+      decodeURIComponent(url.pathname),
+    )
+  )
+    throw failure("Source returned an executable or script instead of a book.");
+  return url;
+}
 export function httpsOrigin(input: string): string {
   const url = httpsUrl(input);
   if (url.pathname !== "/" || url.search || url.hash)
