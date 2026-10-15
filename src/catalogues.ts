@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 import {
   Family,
   failure,
+  downloadUrl,
   httpsUrl,
   type Mirror,
   type PluginReleaseCandidate,
@@ -28,6 +29,10 @@ export const GuidSchema = Schema.Struct({
 const extensions =
   "epub|pdf|mobi|azw3|fb2|djvu|cbz|cbr|mp3|m4b|m4a|flac|ogg|opus|zip|rar|7z";
 const formats = new RegExp(`\\b(${extensions})\\b`, "i");
+const supportedFormats = new RegExp(`^(?:${extensions})$`, "i");
+export const isSupportedFormat = (
+  format: string | undefined,
+): format is string => supportedFormats.test(format ?? "");
 const bookFile = new RegExp(`\\.(?:${extensions})(?:$|[?#])`, "i");
 const audioFormats = new Set(["mp3", "m4b", "m4a", "flac", "ogg", "opus"]);
 // Archives need positive catalogue evidence; their extension alone says nothing.
@@ -289,6 +294,7 @@ export function mergeHits(
   const groups = new Map<string, { first: Hit; locations: Location[] }>();
   const aliases = new Map<string, string>();
   for (const h of hits) {
+    if (!isSupportedFormat(h.format)) continue;
     const audio = !!h.audioArchive || audioFormats.has(h.format ?? "");
     if (media === "audiobook" && !audio) continue;
     if (media === "ebook" && audio) continue;
@@ -386,6 +392,11 @@ export function downloadLink(html: string, origin: string): string | undefined {
     .filter((_, el) => {
       const link = $(el);
       const href = link.attr("href") ?? "";
+      try {
+        downloadUrl(href, origin);
+      } catch {
+        return false;
+      }
       if (link.closest('template,[hidden],[aria-hidden="true"]').length)
         return false;
       if (/\.torrent(?:$|\?)/i.test(href)) return false;
@@ -399,8 +410,5 @@ export function downloadLink(html: string, origin: string): string | undefined {
     .first()
     .attr("href");
   if (!candidate) return undefined;
-  const url = new URL(candidate, origin);
-  if (url.protocol !== "https:" || url.username || url.password)
-    throw failure("Source returned an unsafe download link.");
-  return url.href;
+  return downloadUrl(candidate, origin).href;
 }

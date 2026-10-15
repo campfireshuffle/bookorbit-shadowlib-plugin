@@ -506,6 +506,7 @@ test("tampered release identifiers cannot cause credential forwarding", async ()
   );
   const release = {
     title: "Book",
+    format: "epub",
     guid: JSON.stringify({
       locations: [
         { family: "annas", origin: "https://evil.example", id: "a".repeat(32) },
@@ -1440,6 +1441,105 @@ test("file resolution ignores access info and hidden decoys before the real down
     ),
     undefined,
   );
+});
+
+test("catalogues omit unsupported and missing formats without inventing an EPUB", () => {
+  const mirror = {
+    family: "memory" as const,
+    origin: "https://formats.example",
+    status: "up",
+  };
+  for (const format of ["exe", "epub.exe", "cmd", "unknown", ""])
+    assert.deepEqual(
+      mergeHits(parseMemory(memoryBody(format), mirror), "ebook", null, 20),
+      [],
+    );
+  assert.equal(
+    mergeHits(parseMemory(memoryBody("epub"), mirror), "ebook", null, 20)
+      .length,
+    1,
+  );
+});
+
+test("download links skip executable paths even when labelled as books", () => {
+  for (const path of [
+    "/download/setup.exe",
+    "/dl/Book.epub.EXE",
+    "/dl/setup%2Eexe",
+    "/dl/setup.exe%20",
+    "/dl/start.cmd",
+    "/dl/start.ps1",
+    "/dl/start.sh",
+  ]) {
+    assert.equal(
+      downloadLink(
+        `<a href="${path}" download="Book.epub">Get</a><a href="/dl/book">Book</a>`,
+        "https://files.example",
+      ),
+      "https://files.example/dl/book",
+    );
+    assert.equal(
+      downloadLink(`<a href="${path}">Get</a>`, "https://files.example"),
+      undefined,
+    );
+  }
+});
+
+test("resolution rejects unsupported saved formats before any network requests", async () => {
+  const config = cfg("memory");
+  const h = host(() => {
+    throw Error("Unexpected request");
+  });
+  for (const format of ["exe", "epub.exe", undefined])
+    await assert.rejects(
+      plugin.resolveFile(
+        {
+          title: q.title,
+          format,
+          guid: "{}",
+          sizeBytes: null,
+          seeders: null,
+          leechers: null,
+        },
+        config,
+        h.value,
+        AbortSignal.timeout(1000),
+      ),
+      /supported.*format/,
+    );
+  assert.equal(h.calls.length, 0);
+});
+
+test("final handoff refuses an executable URL behind a supported catalogue format", async () => {
+  const config = cfg("memory");
+  const origin = "https://handoff.memoryoftheworld.example";
+  const h = host(() => new Response(directory({ other: [origin] })));
+  await assert.rejects(
+    plugin.resolveFile(
+      {
+        title: q.title,
+        format: "epub",
+        guid: JSON.stringify({
+          locations: [
+            {
+              family: "memory",
+              origin,
+              id: "book",
+              url: `${origin}/files/setup.exe`,
+            },
+          ],
+        }),
+        sizeBytes: 100,
+        seeders: null,
+        leechers: null,
+      },
+      config,
+      h.value,
+      AbortSignal.timeout(2000),
+    ),
+    /invalid or unsafe download URL/,
+  );
+  assert(h.calls.every(({ url }) => new URL(url).origin === config.baseUrl));
 });
 
 test("non-HTML sources also emit safe integer byte counts", () => {
