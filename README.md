@@ -98,4 +98,4 @@ pnpm build
 
 The uploadable file is `dist/index.mjs`.
 
-MIT licensed. Vendored BookOrbit types retain their upstream license in `vendor/`.
+Copyright © 2026 campfireshuffle. AGPL-3.0 licensed. Vendored BookOrbit types retain their upstream license in `vendor/`.
