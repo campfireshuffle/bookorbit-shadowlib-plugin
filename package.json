@@ -19,7 +19,7 @@
   "type": "module",
   "dependencies": {
     "cheerio": "^1.2.0",
-    "effect": "^4.0.2"
+    "effect": "^4.0.4"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
