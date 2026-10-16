@@ -27,3 +27,5 @@ guide doesn't cover, search through the source code in `node_modules/effect/src`
 - `pnpm lint` runs Knip for unused files, exports and dependencies. Vendored upstream types stay unchanged.
 - `pnpm build` produces the standalone `dist/index.mjs`. `pnpm check` also verifies formatting, Knip, types, tests and BookOrbit upload compatibility.
 - To release, bump `package.json` and merge a passing PR. Actions automatically signs and publishes the bundle and update manifest from the main-only `plugin-signing` environment.
+
+Build and release tooling comes from the exact Git commit pinned in package.json. Keep the signing workflow checkout at the same commit; release tests enforce this. Plugin runtime code stays local.
