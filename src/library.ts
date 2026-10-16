@@ -1,3 +1,4 @@
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
@@ -84,12 +85,18 @@ const searchAll = Effect.fnUntraced(function* (
   cfg: PluginIndexerConfig,
   prepared: Prepared,
   warming = false,
+  budgetMs = warming ? 14000 : 8000,
 ) {
   const { host, browser } = yield* Network;
   const { accounts, mirrors, enabled } = prepared;
-  const outcomes = yield* Effect.forEach(
+  const outcomes: {
+    family: Family;
+    outcome: Result.Result<Hit[], SourceError>;
+  }[] = [];
+  let expired = false;
+  yield* Effect.forEach(
     enabled,
-    (family) => {
+    (family, index) => {
       const candidates = mirrors
         .filter((m) => m.family === family)
         .sort(byPriority(accounts));
@@ -137,23 +144,24 @@ const searchAll = Effect.fnUntraced(function* (
         return yield* Effect.fail(last);
       });
       return searchFamily.pipe(
-        Effect.timeoutOrElse({
-          duration: warming ? "14 seconds" : "8 seconds",
-          orElse: () =>
-            answered
-              ? Effect.succeed([] as Hit[])
-              : Effect.fail(
-                  failure(
-                    `${family}: mirror search budget expired.`,
-                    "timeout",
-                  ),
-                ),
-        }),
         Effect.result,
-        Effect.map((outcome) => ({ family, outcome })),
+        Effect.map((outcome) => {
+          outcomes[index] = { family, outcome };
+        }),
       );
     },
-    { concurrency: 4 },
+    { concurrency: 5, discard: true },
+  ).pipe(
+    Effect.timeoutOrElse({
+      duration: Math.max(0, budgetMs),
+      orElse: () =>
+        Effect.sync(() => {
+          expired = true;
+          host.logger.warn(
+            "Library search budget expired; keeping completed results.",
+          );
+        }),
+    }),
   );
   const failures = outcomes.flatMap(({ family, outcome }) =>
     Result.isFailure(outcome) ? [`${family}: ${outcome.failure.message}`] : [],
@@ -166,10 +174,11 @@ const searchAll = Effect.fnUntraced(function* (
     const kinds = outcomes.flatMap(({ outcome }) =>
       Result.isFailure(outcome) ? [outcome.failure.kind] : [],
     );
+    if (expired) kinds.push("timeout");
     const kind = kinds[0] ?? "error";
     return yield* Effect.fail(
       failure(
-        `No library completed a search. ${failures.join(" ")}`,
+        `No library completed a search. ${expired ? "Library search budget expired. " : ""}${failures.join(" ")}`,
         kinds.every((value) => value === kind) ? kind : "error",
       ),
     );
@@ -179,7 +188,15 @@ const searchAll = Effect.fnUntraced(function* (
   const count = Math.max(0, ...results.map((r) => r.length));
   for (let i = 0; i < count; i++)
     for (const list of results) if (list[i]) mixed.push(list[i]);
-  return mergeHits(mixed, q.mediaKind, q.language, q.limit);
+  const releases = mergeHits(mixed, q.mediaKind, q.language, q.limit);
+  if (!releases.length && (expired || failures.length))
+    return yield* Effect.fail(
+      failure(
+        "Some libraries could not complete the search. Retry or check source diagnostics in the BookOrbit logs.",
+        expired ? "timeout" : "error",
+      ),
+    );
+  return releases;
 });
 
 const prepare = Effect.fnUntraced(function* (
@@ -233,8 +250,11 @@ export const search = Effect.fnUntraced(function* (
   cfg: PluginIndexerConfig,
 ) {
   const { host } = yield* Network;
+  const started = yield* Clock.currentTimeMillis;
   const prepared = yield* prepare(cfg);
-  return yield* searchAll(q, cfg, prepared).pipe(
+  const elapsed = (yield* Clock.currentTimeMillis) - started;
+  // Include discovery in the query budget so BookOrbit can try another search.
+  return yield* searchAll(q, cfg, prepared, false, 8000 - elapsed).pipe(
     Effect.provideService(Network, { host, browser: prepared.browser }),
   );
 });

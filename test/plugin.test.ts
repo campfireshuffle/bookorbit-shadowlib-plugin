@@ -2151,7 +2151,7 @@ test("API quota exhaustion does not retry other mirrors of the same library", as
   }
 });
 
-test("a valid empty catalogue answer survives the remaining mirror budget", async () => {
+test("an empty answer does not hide unfinished mirror searches", async () => {
   const config = cfg("libgen");
   const h = host((url) => {
     if (url.origin === config.baseUrl)
@@ -2169,16 +2169,17 @@ test("a valid empty catalogue answer survives the remaining mirror budget", asyn
       return new Response("No results");
     return new Promise<Response>(() => {});
   });
-  const releases = await plugin.search(
-    q,
-    config,
-    h.value,
-    AbortSignal.timeout(10000),
+  await assert.rejects(
+    plugin.search(q, config, h.value, AbortSignal.timeout(10000)),
+    (error: Error & { kind?: string }) => {
+      assert.equal(error.kind, "timeout");
+      assert.match(error.message, /budget expired/);
+      return true;
+    },
   );
-  assert.deepEqual(releases, []);
   assert(
     h.calls.some(
-      ({ url }) => new URL(url).hostname === "empty-followup-3.example",
+      ({ url }) => new URL(url).hostname === "empty-followup-2.example",
     ),
   );
 });
@@ -2422,5 +2423,97 @@ test("narrator metadata identifies audio archives without classifying ebook file
       20,
     ).length,
     0,
+  );
+});
+
+test("search keeps completed libraries within a budget that includes discovery", async () => {
+  const config = cfg("libgen,memory");
+  const h = host(async (url) => {
+    if (url.origin === config.baseUrl) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      return new Response(
+        directory({
+          libgen: Array.from(
+            { length: 4 },
+            (_, i) => `https://budget-${i}.example`,
+          ),
+          other: ["https://library.memoryoftheworld-budget.example"],
+        }),
+      );
+    }
+    if (url.hostname === "library.memoryoftheworld-budget.example")
+      return Response.json(memoryBody());
+    return new Promise<Response>(() => {});
+  });
+  const started = performance.now();
+  const releases = await plugin.search(
+    q,
+    config,
+    h.value,
+    AbortSignal.timeout(9500),
+  );
+  const elapsed = performance.now() - started;
+  assert.equal(releases.length, 1);
+  assert.equal(JSON.parse(releases[0].guid).locations[0].family, "memory");
+  assert(elapsed >= 7500 && elapsed < 9000, `Search took ${elapsed}ms`);
+  assert(
+    h.logs.some((message) => message.includes("keeping completed results")),
+  );
+});
+
+test("an empty completed library cannot turn a timed-out search into no matches", async () => {
+  const config = cfg("libgen,memory");
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          libgen: Array.from(
+            { length: 4 },
+            (_, i) => `https://empty-budget-${i}.example`,
+          ),
+          other: ["https://library.memoryoftheworld-empty-budget.example"],
+        }),
+      );
+    if (url.hostname === "library.memoryoftheworld-empty-budget.example")
+      return Response.json({ _items: [] });
+    return new Promise<Response>(() => {});
+  });
+  await assert.rejects(
+    plugin.search(q, config, h.value, AbortSignal.timeout(9500)),
+    (error: Error & { kind?: string }) => {
+      assert.equal(error.kind, "timeout");
+      assert.match(error.message, /could not complete/);
+      return true;
+    },
+  );
+});
+
+test("caller cancellation rejects even when another library has completed", async () => {
+  const config = cfg("libgen,memory");
+  const controller = new AbortController();
+  const h = host((url) => {
+    if (url.origin === config.baseUrl)
+      return new Response(
+        directory({
+          libgen: ["https://caller-budget.example"],
+          other: ["https://library.memoryoftheworld-caller-budget.example"],
+        }),
+      );
+    if (url.hostname === "library.memoryoftheworld-caller-budget.example") {
+      setTimeout(() => controller.abort(), 50);
+      return Response.json(memoryBody());
+    }
+    return new Promise<Response>(() => {});
+  });
+  await assert.rejects(
+    plugin.search(q, config, h.value, controller.signal),
+    /cancelled|timed out/,
+  );
+  assert(h.logs.some((message) => message.startsWith("memory: 1 releases")));
+  assert.equal(
+    h.calls.filter(
+      ({ url }) => new URL(url).hostname === "caller-budget.example",
+    ).length,
+    1,
   );
 });
