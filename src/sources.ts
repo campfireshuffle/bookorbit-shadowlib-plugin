@@ -43,8 +43,6 @@ const decode = <S extends Schema.ConstraintDecoder<unknown>>(
     try: () => Schema.decodeUnknownSync(schema)(value),
     catch: () => failure("Source returned an unexpected API response."),
   });
-const queryText = (q: PluginReleaseQuery) =>
-  q.isbn13 || [q.title, q.author].filter(Boolean).join(" ");
 
 const createSession = Effect.fnUntraced(function* (
   mirror: Mirror,
@@ -196,7 +194,6 @@ export const searchMirror = Effect.fnUntraced(function* (
   cfg: PluginIndexerConfig,
   accounts: Credentials,
 ) {
-  const term = queryText(q);
   if (mirror.family === "memory") {
     const response = yield* request(
       `${mirror.origin}/search/title/${encodeURIComponent(q.title)}?limit=${Math.min(q.limit, 50)}`,
@@ -209,6 +206,8 @@ export const searchMirror = Effect.fnUntraced(function* (
     });
   }
   if (mirror.family === "liber3") return yield* searchLiber(mirror, q);
+  const { host } = yield* Network;
+  const term = q.isbn13 || host.buildSearchText(q);
   if (mirror.family === "zlibrary") {
     if (!accountForMirror(accounts, mirror))
       return yield* Effect.fail(

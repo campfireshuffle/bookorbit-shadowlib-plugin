@@ -288,7 +288,6 @@ const libraryNames = {
 export function mergeHits(
   hits: Hit[],
   media: string,
-  language: string | null,
   limit: number,
 ): PluginReleaseCandidate[] {
   const groups = new Map<string, { first: Hit; locations: Location[] }>();
@@ -298,7 +297,6 @@ export function mergeHits(
     const audio = !!h.audioArchive || audioFormats.has(h.format ?? "");
     if (media === "audiobook" && !audio) continue;
     if (media === "ebook" && audio) continue;
-    if (language && h.language && h.language !== language) continue;
     const keys = [
       `record:${h.location.family}:${h.location.id}:${h.format ?? "unknown"}`,
     ];

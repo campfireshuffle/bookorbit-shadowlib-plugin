@@ -366,7 +366,7 @@ test("dedupe merges hashes and links, retaining formats and editions", () => {
       location: { ...base.location, id: "four" },
     },
   ];
-  const result = mergeHits(hits, "ebook", "en", 20);
+  const result = mergeHits(hits, "ebook", 20);
   assert.equal(result.length, 3);
   assert.equal(JSON.parse(result[0].guid).locations.length, 2);
   assert.deepEqual(Object.keys(JSON.parse(result[0].guid)), ["locations"]);
@@ -393,7 +393,7 @@ test("dedupe merges hashes and links, retaining formats and editions", () => {
       },
     },
   ];
-  assert.equal(mergeHits(linked, "ebook", null, 20).length, 1);
+  assert.equal(mergeHits(linked, "ebook", 20).length, 1);
   const hashed = [
     { ...base, md5: undefined, sha256: "f".repeat(64) },
     {
@@ -403,7 +403,7 @@ test("dedupe merges hashes and links, retaining formats and editions", () => {
       location: { ...base.location, id: "other" },
     },
   ];
-  const sameLibrary = mergeHits(hashed, "ebook", null, 20);
+  const sameLibrary = mergeHits(hashed, "ebook", 20);
   assert.equal(sameLibrary.length, 1);
   assert.equal(sameLibrary[0].title, `${q.title} · Anna’s Archive`);
   const bridge = [
@@ -421,7 +421,7 @@ test("dedupe merges hashes and links, retaining formats and editions", () => {
       location: { ...base.location, id: "both" },
     },
   ];
-  assert.equal(mergeHits(bridge, "ebook", null, 20).length, 1);
+  assert.equal(mergeHits(bridge, "ebook", 20).length, 1);
 });
 test("audiobook requests retain audio and exclude ebook-only files", () => {
   const mirror = {
@@ -433,7 +433,7 @@ test("audiobook requests retain audio and exclude ebook-only files", () => {
     ...parseMemory(memoryBody(), mirror),
     ...parseMemory(memoryBody("m4b"), mirror),
   ];
-  const result = mergeHits(hits, "audiobook", null, 20);
+  const result = mergeHits(hits, "audiobook", 20);
   assert.equal(result.length, 1);
   assert.equal(result[0].format, "m4b");
 });
@@ -476,7 +476,6 @@ test("Anna API failure does not fall back to anonymous pages or LibGen", async (
       },
     ],
     "ebook",
-    null,
     20,
   )[0];
   await assert.rejects(
@@ -1451,12 +1450,11 @@ test("catalogues omit unsupported and missing formats without inventing an EPUB"
   };
   for (const format of ["exe", "epub.exe", "cmd", "unknown", ""])
     assert.deepEqual(
-      mergeHits(parseMemory(memoryBody(format), mirror), "ebook", null, 20),
+      mergeHits(parseMemory(memoryBody(format), mirror), "ebook", 20),
       [],
     );
   assert.equal(
-    mergeHits(parseMemory(memoryBody("epub"), mirror), "ebook", null, 20)
-      .length,
+    mergeHits(parseMemory(memoryBody("epub"), mirror), "ebook", 20).length,
     1,
   );
 });
@@ -1569,7 +1567,6 @@ test("non-HTML sources also emit safe integer byte counts", () => {
       },
     ],
     "ebook",
-    null,
     10,
   );
   assert.deepEqual(
@@ -1757,7 +1754,6 @@ test("invalid API download URLs remain typed failures and allow another mirror",
         },
       ],
       "ebook",
-      null,
       1,
     )[0];
     const file = await plugin.resolveFile(
@@ -2073,7 +2069,6 @@ test("malformed Memory file locations fail locally and allow a verified alternat
       status: "up",
     }),
     "ebook",
-    "en",
     1,
   );
   const guid = JSON.parse(release.guid);
@@ -2131,7 +2126,6 @@ test("API quota exhaustion does not retry other mirrors of the same library", as
         },
       ],
       "ebook",
-      "en",
       1,
     );
     await assert.rejects(
@@ -2387,10 +2381,10 @@ test("audio ZIP classification rejects ambiguous archives and preserves ebook fo
     ),
     ...parseHtml(annaHtml("4".repeat(32), "Beastie Boys Book", "epub"), mirror),
   ];
-  const audio = mergeHits(hits, "audiobook", null, 20);
+  const audio = mergeHits(hits, "audiobook", 20);
   assert.equal(audio.length, 1);
   assert.equal(audio[0].format, "zip");
-  assert.equal(mergeHits(hits, "ebook", null, 20).length, 3);
+  assert.equal(mergeHits(hits, "ebook", 20).length, 3);
 });
 
 test("narrator metadata identifies audio archives without classifying ebook files", () => {
@@ -2405,23 +2399,17 @@ test("narrator metadata identifies audio archives without classifying ebook file
   const audio = mergeHits(
     parseHtml(card("ZIP", author), mirror),
     "audiobook",
-    null,
     20,
   );
   assert.equal(audio.length, 1);
   assert.equal(audio[0].format, "zip");
   assert.equal(
-    mergeHits(parseHtml(card("PDF", author), mirror), "audiobook", null, 20)
-      .length,
+    mergeHits(parseHtml(card("PDF", author), mirror), "audiobook", 20).length,
     0,
   );
   assert.equal(
-    mergeHits(
-      parseHtml(card("ZIP", "Kahlil Gibran"), mirror),
-      "audiobook",
-      null,
-      20,
-    ).length,
+    mergeHits(parseHtml(card("ZIP", "Kahlil Gibran"), mirror), "audiobook", 20)
+      .length,
     0,
   );
 });
@@ -2515,5 +2503,54 @@ test("caller cancellation rejects even when another library has completed", asyn
       ({ url }) => new URL(url).hostname === "caller-budget.example",
     ).length,
     1,
+  );
+});
+
+test("keyword catalogues use BookOrbit search text while ISBN searches keep the active ISBN", async () => {
+  for (const isbn13 of [null, "9780141439518"]) {
+    const config = cfg("libgen");
+    let helperCalls = 0;
+    const h = host((url) => {
+      if (url.origin === config.baseUrl)
+        return new Response(
+          directory({ libgen: ["https://host-query.example"] }),
+        );
+      assert.equal(url.searchParams.get("req"), isbn13 ?? "HOST SEARCH TEXT");
+      return new Response(libgenHtml());
+    });
+    h.value.buildSearchText = () => {
+      helperCalls++;
+      return "HOST SEARCH TEXT";
+    };
+    const releases = await plugin.search(
+      { ...q, title: `${q.title} (Illustrated)`, isbn13 },
+      config,
+      h.value,
+      AbortSignal.timeout(1000),
+    );
+    assert.equal(releases.length, 1);
+    assert.equal(helperCalls, isbn13 ? 0 : 1);
+  }
+});
+
+test("catalogues preserve declared languages for BookOrbit to normalize and filter", () => {
+  const hits: Hit[] = ["eng", "fr"].map((language, i) => ({
+    title: q.title,
+    format: "epub",
+    language,
+    author: q.author!,
+    seeders: null,
+    leechers: null,
+    sizeBytes: 100,
+    location: {
+      family: "memory",
+      origin: "https://library.memoryoftheworld-language.example",
+      id: String(i),
+    },
+  }));
+  const releases = mergeHits(hits, "ebook", 20);
+  assert.deepEqual(
+    releases.map((release) => release.language),
+    ["eng", "fr"],
   );
 });

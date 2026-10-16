@@ -188,7 +188,7 @@ const searchAll = Effect.fnUntraced(function* (
   const count = Math.max(0, ...results.map((r) => r.length));
   for (let i = 0; i < count; i++)
     for (const list of results) if (list[i]) mixed.push(list[i]);
-  const releases = mergeHits(mixed, q.mediaKind, q.language, q.limit);
+  const releases = mergeHits(mixed, q.mediaKind, q.limit);
   if (!releases.length && (expired || failures.length))
     return yield* Effect.fail(
       failure(
